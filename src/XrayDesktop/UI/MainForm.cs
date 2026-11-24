@@ -6,7 +6,7 @@ using XrayDesktop.Windows;
 
 namespace XrayDesktop.UI;
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Form
 {
     private readonly ProfileStore store = new(Path.Combine(AppContext.BaseDirectory, "data"));
     private readonly SessionController session = new(AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, "data"));
@@ -20,13 +20,14 @@ internal sealed class MainForm : Form
     private readonly Label proxyStatus = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly CheckBox enableOnStart = new() { Text = "Enable proxy after Start (ask first)", AutoSize = true, Checked = false };
     private long lastProxyPoll;
+    private Task<ProxyStatus>? proxyPoll;
     private readonly ComboBox profiles = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, DisplayMember = "Name" };
     private readonly ComboBox endpoints = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 360 };
     private readonly Label status = new() { AutoSize = true };
     private readonly Label details = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label warnings = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly TextBox logs = new() { Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 9) };
-    private readonly FlowLayoutPanel profileBar = Bar(), coreBar = Bar(), logBar = Bar();
+    private readonly FlowLayoutPanel profileBar = Bar(), coreBar = Bar(), logBar = Bar(), settingsBar = Bar();
     private readonly Button manual = new() { Text = "Manual endpoint", AutoSize = true };
     private readonly Button cancel = new() { Text = "Cancel operation", AutoSize = true, Enabled = false };
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 300 };
@@ -40,68 +41,121 @@ internal sealed class MainForm : Form
     internal MainForm()
     {
         Text = $"{Bootstrap.ProductName} — {Bootstrap.Version}"; StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi; MinimumSize = new Size(850, 660); Size = new Size(1000, 760);
-        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 9 };
+        AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
+        MinimumSize = new Size(620, 460); Size = new Size(1000, 760);
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(10), ColumnCount = 1, RowCount = 3 };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var i = 0; i < 8; i++) content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize)); content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         profileBar.Controls.Add(profiles);
         Add(profileBar, "Import", ImportAsync); Add(profileBar, "New", NewAsync); Add(profileBar, "Edit", EditAsync); Add(profileBar, "Save As", SaveAsAsync); Add(profileBar, "Remove reference", RemoveAsync); Add(profileBar, "Reload", InspectAsync);
         var endpointBar = Bar(); endpointBar.Controls.Add(new Label { Text = "Local endpoint to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints); endpointBar.Controls.Add(manual);
-        manual.Click += (_, _) => SelectManualEndpoint();
+        manual.Click += async (_, _) => await RunAsync(_ => { SelectManualEndpoint(); return Task.CompletedTask; });
         Add(coreBar, "Check core", CheckAsync); Add(coreBar, "Validate", ValidateAsync); Add(coreBar, "Start", StartAsync); Add(coreBar, "Stop", async _ => { await StopCoreAsync(); }); Add(coreBar, "Restart", async token => { if (await StopCoreAsync()) await StartAsync(token); });
-        var commands = Bar(); commands.Controls.Add(coreBar); commands.Controls.Add(cancel);
+        var commands = Bar(); commands.Controls.Add(cancel);
         cancel.Click += (_, _) => operation?.Cancel();
         Add(proxyBar, "Enable system proxy", EnableProxyAsync);
         Add(proxyBar, "Restore system proxy", _ => RestoreProxyAsync());
         Add(proxyBar, "Review / resolve", _ => ReviewProxyAsync());
         proxyBar.Controls.Add(enableOnStart);
-        Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; }, gated: false);
-        Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; }, gated: false);
-        content.Controls.Add(status, 0, 0); content.Controls.Add(profileBar, 0, 1); content.Controls.Add(details, 0, 2); content.Controls.Add(endpointBar, 0, 3); content.Controls.Add(warnings, 0, 4); content.Controls.Add(commands, 0, 5); content.Controls.Add(proxyStatus, 0, 6); content.Controls.Add(proxyBar, 0, 7); var tabs = new TabControl { Dock = DockStyle.Fill };
+        Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; });
+        Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; });
+        Add(logBar, "Save raw logs…", SaveRawLogsAsync);
+        logBar.Controls.Add(autoScroll);
+        // Keep status and cancellation available on every tab. The connection and
+        // settings pages scroll independently rather than squeezing the log/results view.
+        content.Controls.Add(status, 0, 0); content.Controls.Add(commands, 0, 1);
+        commands.Controls.Add(proxyStatus);
+        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var connectionTab = new TabPage("Connection");
+        AddScrollablePage(connectionTab, [new Label { Text = "Configuration profile", AutoSize = true }, profileBar, details, warnings,
+            endpointBar, coreBar, new Label { Text = "Windows LAN proxy (not a VPN)", AutoSize = true }, proxyBar]);
         var logTab = new TabPage("Logs"); logBar.Dock = DockStyle.Bottom; logTab.Controls.Add(logs); logTab.Controls.Add(logBar);
         var diagnosticTab = new TabPage("Diagnostics"); diagnosticTab.Controls.Add(diagnostics);
-        tabs.TabPages.Add(logTab); tabs.TabPages.Add(diagnosticTab); content.Controls.Add(tabs, 0, 8);
+        var settingsTab = new TabPage("Settings");
+        Add(settingsBar, "Save desktop preferences", SaveDesktopAsync);
+        Add(settingsBar, "Reset preferences", ResetDesktopAsync);
+        Add(settingsBar, "Clear profile list", ClearProfilesAsync);
+        AddScrollablePage(settingsTab, [new Label { Text = "Desktop preferences", AutoSize = true }, minimizeToTray, rememberWindow,
+            desktopNotice, settingsBar, new Label { Text = "Log auto-scroll is on the Logs tab; Save desktop preferences remembers it. Raw logs are in memory unless explicitly exported.\nProbe URLs and timeouts are saved on Diagnostics; enable-after-Start and network consent are session-only.\nClearing the profile list never deletes configuration files, logs on disk, or the proxy recovery journal.", AutoSize = true, Name = "settingsHelp" }]);
+        tabs.TabPages.AddRange([connectionTab, logTab, diagnosticTab, settingsTab]); content.Controls.Add(tabs, 0, 2);
+        content.SizeChanged += (_, _) =>
+        {
+            var width = Math.Max(120, content.ClientSize.Width - content.Padding.Horizontal - 12);
+            status.MaximumSize = new Size(width, 0);
+            proxyStatus.MaximumSize = new Size(Math.Max(120, width - cancel.Width - 20), 0);
+        };
         diagnostics.RunRequested += async scope => await RunAsync(token => RunDiagnosticsAsync(scope, token));
         diagnostics.SavePreferencesRequested += async () => await RunAsync(SaveProbePreferencesAsync);
+        diagnostics.ReportRequested += async () => await RunAsync(_ => { diagnostics.PreviewReport(); return Task.CompletedTask; });
         Controls.Add(content);
         profiles.SelectedIndexChanged += async (_, _) => { if (!updating && !busy) await RunAsync(async token => { await PersistAsync(); await InspectAsync(token); }); };
-        Shown += async (_, _) => { await RunAsync(InitializeAsync); timer.Start(); };
+        ConfigureTray();
+        Resize += (_, _) =>
+        {
+            if (WindowState != FormWindowState.Minimized) lastVisibleState = WindowState;
+            else if (initialized && !busy && !closing && desktopPreferences.MinimizeToTray && tray.Visible && Visible) Hide();
+        };
+        Shown += async (_, _) =>
+        {
+            tray.Visible = true;
+            await RunAsync(InitializeAsync);
+            initialized = true;
+            if (!closing && !IsDisposed) timer.Start();
+        };
         timer.Tick += async (_, _) =>
         {
             Render();
             if (busy || closing) { if (diagnosing && session.ChildExited) operation?.Cancel(); return; }
+            if (proxyPoll is not null) return;
             try
             {
                 if (session.ChildExited) await RunAsync(_ => HandleChildExitAsync(), quiet: true);
                 else if (Environment.TickCount64 - lastProxyPoll >= 3000)
                 {
                     lastProxyPoll = Environment.TickCount64;
-                    await RunAsync(async _ => { await Task.Run(proxy.Inspect); }, quiet: true);
+                    // Read-only polling must not disable controls or steal focus while typing.
+                    // Mutating commands await this task before accessing the proxy controller.
+                    proxyPoll = Task.Run(proxy.Inspect);
+                    try { await proxyPoll; }
+                    finally { proxyPoll = null; if (!IsDisposed) Render(); }
                 }
             }
             catch (Exception ex) { session.Log.Add("app", $"Session poll failed: {ex.Message}"); }
         };
         FormClosing += OnClosing;
-        FormClosed += (_, _) => timer.Dispose();
+
         Render();
     }
 
     private static FlowLayoutPanel Bar() => new() { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = new Padding(0, 2, 0, 2) };
-    private void Add(FlowLayoutPanel bar, string text, Func<CancellationToken, Task> command, bool gated = true)
+    private void Add(FlowLayoutPanel bar, string text, Func<CancellationToken, Task> command)
     {
         var button = new Button { Text = text, AutoSize = true, Name = text };
-        button.Click += async (_, _) => { if (gated) await RunAsync(command); else { try { await command(CancellationToken.None); } catch (Exception ex) { ShowError(ex); } } };
+        button.Click += async (_, _) => await RunAsync(command);
         bar.Controls.Add(button);
     }
     private async Task RunAsync(Func<CancellationToken, Task> command, bool quiet = false)
     {
         if (busy || closing) return;
         busy = true; using var source = new CancellationTokenSource(); operation = source; Render();
-        try { await command(source.Token); }
+        try
+        {
+            await WaitForProxyPollAsync();
+            source.Token.ThrowIfCancellationRequested();
+            await command(source.Token);
+        }
         catch (OperationCanceledException) when (source.IsCancellationRequested) { session.Log.Add("app", "Operation cancelled."); }
         catch (Exception ex) { session.Log.Add("app", ex.Message); if (!quiet && !closing) ShowError(ex); }
         finally { operation = null; busy = false; Render(); if (closing && !IsDisposed) BeginInvoke((Action)Close); }
+    }
+    private async Task WaitForProxyPollAsync()
+    {
+        if (proxyPoll is { } pending)
+        {
+            try { await pending; }
+            catch (Exception) { /* Timer records poll failure; commands perform fresh checks. */ }
+        }
     }
     private async Task InitializeAsync(CancellationToken token)
     {
@@ -113,6 +167,19 @@ internal sealed class MainForm : Form
             if (initial.Journal is not null) session.Log.Add("proxy", "Interrupted proxy transaction recovered and verified.");
         }
         catch (Exception) { session.Log.Add("proxy", "Startup recovery incomplete; review Windows proxy before starting."); }
+        try
+        {
+            desktopPreferences = await Task.Run(desktopStore.Load, token);
+            ApplyDesktopPreferences();
+            if (desktopPreferences is { RememberWindow: true, Placement: { } placement }) RestorePlacement(placement);
+            else if (WindowState == FormWindowState.Normal) RestorePlacement(CapturePlacement());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException or InvalidDataException)
+        {
+            desktopUnreadable = true;
+            desktopNotice.Text = "Desktop preferences unreadable; defaults in use. Original file retained until explicit save or reset.";
+            session.Log.Add("app", "Desktop preferences unreadable; original retained.");
+        }
         try { settings = await Task.Run(store.Load, token); }
         catch (Exception ex) { settingsUnreadable = true; session.Log.Add("app", $"Settings unreadable; original retained: {ex.Message}"); }
         RefreshProfiles(settings.ActiveId); await InspectAsync(token);
@@ -289,7 +356,7 @@ internal sealed class MainForm : Form
     {
         var reviewed = await Task.Run(proxy.Inspect);
         static string Describe(ProxySettings? value) => value is null ? "Unavailable" : $"Flags: 0x{value.Flags:X} (direct=1, manual=2, PAC=4, autodetect=8)\r\nServer: {value.Server}\r\nBypass: {value.Bypass}\r\nPAC: {value.Pac}";
-        using var dialog = new Form { Text = "Windows proxy review — local sensitive data", StartPosition = FormStartPosition.CenterParent, Size = new Size(720, 500), MinimumSize = new Size(520, 380) };
+        using var dialog = new Form { Text = "Windows proxy review — local sensitive data", AutoScaleDimensions = new SizeF(96, 96), AutoScaleMode = AutoScaleMode.Dpi, StartPosition = FormStartPosition.CenterParent, Size = new Size(720, 500), MinimumSize = new Size(520, 380) };
         var text = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, WordWrap = false,
             Text = reviewed.Detail + "\r\n\r\nCURRENT\r\n" + Describe(reviewed.Current) + "\r\n\r\nORIGINAL\r\n" + Describe(reviewed.Journal?.Original) + "\r\n\r\nINTENDED\r\n" + Describe(reviewed.Journal?.Applied) + "\r\n\r\nValues may contain private URLs or credentials; do not share. If recovery is unavailable, open Windows Settings > Network & Internet > Proxy and restore your previous settings manually." };
         var choices = Bar(); choices.Dock = DockStyle.Bottom;
@@ -327,7 +394,7 @@ internal sealed class MainForm : Form
     }
     private void SelectManualEndpoint()
     {
-        using var dialog = new Form { Text = "Manual listener verification", StartPosition = FormStartPosition.CenterParent, Size = new Size(440, 240), FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false };
+        using var dialog = new Form { Text = "Manual listener verification", AutoScaleDimensions = new SizeF(96, 96), AutoScaleMode = AutoScaleMode.Dpi, StartPosition = FormStartPosition.CenterParent, Size = new Size(440, 240), FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false };
         var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12) };
         var protocol = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 }; protocol.Items.AddRange(["http", "socks"]); protocol.SelectedIndex = 0;
         var address = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 }; address.Items.AddRange(["127.0.0.1", "::1"]); address.SelectedIndex = 0;
@@ -344,7 +411,7 @@ internal sealed class MainForm : Form
     private void Render()
     {
         var running = !busy && session.HasChild;
-        if (busy) status.Text = "Operation in progress… | Connectivity: not monitored";
+        if (busy) status.Text = $"Operation in progress… | Last observed core: {session.State} | Connectivity: not monitored";
         else
         {
             var uptime = session.Started is { } started ? (DateTimeOffset.Now - started).ToString(@"d\.hh\:mm\:ss") : "—";
@@ -364,9 +431,23 @@ internal sealed class MainForm : Form
         });
         cancel.Enabled = busy && !closing;
         diagnostics.SetBusy(busy || closing);
+        settingsBar.Enabled = !busy && !closing;
+        logBar.Enabled = !busy && !closing;
+        minimizeToTray.Enabled = rememberWindow.Enabled = !busy && !closing;
+        foreach (Control control in settingsBar.Controls)
+            if (control.Name == "Clear profile list") control.Enabled = !running && !busy && !closing;
+        trayShow.Enabled = !closing;
+        trayStart.Enabled = CommandEnabled(coreBar, "Start");
+        trayStop.Enabled = CommandEnabled(coreBar, "Stop");
+        trayEnable.Enabled = CommandEnabled(proxyBar, "Enable system proxy");
+        trayRestore.Enabled = CommandEnabled(proxyBar, "Restore system proxy");
+        trayExit.Enabled = !busy && !closing;
+        var tooltip = $"Xray Desktop | {session.State} | Proxy: {currentProxy.State}";
+        if (tray.Text != tooltip) tray.Text = tooltip;
         var batch = session.Log.ReadAfter(logId); logId = batch.Id;
         if (batch.Lines.Length > 0)
         {
+            var selection = logs.SelectionStart; var selectionLength = logs.SelectionLength;
             if (displayedLines + batch.Lines.Length > 5000 || logs.TextLength + batch.Lines.Sum(l => l.Length + 2) > 2 * 1024 * 1024)
             {
                 var retained = session.Log.ReadAfter(0);
@@ -374,18 +455,25 @@ internal sealed class MainForm : Form
                 displayedLines = retained.Lines.Length; logId = retained.Id;
             }
             else { logs.AppendText(string.Join(Environment.NewLine, batch.Lines) + Environment.NewLine); displayedLines += batch.Lines.Length; }
-            logs.SelectionStart = logs.TextLength; logs.ScrollToCaret();
+            if (autoScroll.Checked) { logs.SelectionStart = logs.TextLength; logs.ScrollToCaret(); }
+            else { logs.Select(Math.Min(selection, logs.TextLength), Math.Min(selectionLength, Math.Max(0, logs.TextLength - selection))); logs.ScrollToCaret(); }
         }
     }
     private async void OnClosing(object? sender, FormClosingEventArgs e)
     {
         if (allowClose) return;
         e.Cancel = true; closing = true; operation?.Cancel(); Render();
+        if (!Visible || WindowState == FormWindowState.Minimized) ShowWindow();
         if (busy) return;
         busy = true; timer.Stop();
         try
         {
-            if (await StopCoreAsync()) { allowClose = true; BeginInvoke((Action)Close); }
+            await WaitForProxyPollAsync();
+            if (await StopCoreAsync())
+            {
+                await SavePlacementOnExitAsync();
+                allowClose = true; BeginInvoke((Action)Close);
+            }
             else { closing = false; timer.Start(); }
         }
         catch (Exception ex) { ShowError(ex); closing = false; timer.Start(); }

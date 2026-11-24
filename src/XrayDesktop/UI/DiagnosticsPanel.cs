@@ -26,6 +26,7 @@ internal sealed class DiagnosticsPanel : UserControl
     private bool running;
     internal event Action<DiagnosticScope>? RunRequested;
     internal event Action? SavePreferencesRequested;
+    internal event Action? ReportRequested;
     internal Uri HttpsDestination => ProbeOptions.ParseHttps(https.Text);
 
     internal DiagnosticsPanel()
@@ -36,19 +37,24 @@ internal sealed class DiagnosticsPanel : UserControl
         remote.SelectedIndexChanged += (_, _) => { if (remote.SelectedItem is RemoteTarget target) { host.Text = target.Host; port.Value = target.Port; } };
         selected.Click += (_, _) => { if (scope.SelectedItem is DiagnosticScope group) RunRequested?.Invoke(group); };
         all.Click += (_, _) => RunRequested?.Invoke(DiagnosticScope.All);
-        report.Click += (_, _) => PreviewReport();
+        report.Click += (_, _) => ReportRequested?.Invoke();
         savePreferences.Click += (_, _) => SavePreferencesRequested?.Invoke();
         AddRow("HTTPS", https, LabelFor("Timeout (s)"), timeout);
         AddRow("IP service", ip, publicIp);
         AddRow("Remote", remote, host, port);
         AddRow("Consent", direct);
         AddRow("Run", scope, selected, all, report, savePreferences);
-        options.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(800, 0), Text = "Run sends requests only for the selected group(s). Proxy tests use the selected protocol endpoint or its unique anonymous inbound; selected-path comparison prefers HTTP when none is selected. Direct requests bypass Windows proxy. TLS stays verified; Xray routing determines outbound. Results below are private; report export omits addresses and raw text." });
+        var help = new Label { AutoSize = true, MaximumSize = new Size(800, 0), Text = "Run sends requests only for the selected group(s). Proxy tests use the selected protocol endpoint or its unique anonymous inbound; selected-path comparison prefers HTTP when none is selected. Direct requests bypass Windows proxy. TLS stays verified; Xray routing determines outbound. Results below are private; report export omits addresses and raw text." };
+        options.Controls.Add(help);
         list.Columns.Add("Probe", 190); list.Columns.Add("Path", 75); list.Columns.Add("Result", 80); list.Columns.Add("ms", 65); list.Columns.Add("Detail (local only)", 650);
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(options, 0, 0); layout.Controls.Add(summary, 0, 1); layout.Controls.Add(list, 0, 2);
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        var viewport = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = new Padding(0) };
+        viewport.Controls.Add(options);
+        layout.SizeChanged += (_, _) => summary.MaximumSize = new Size(Math.Max(120, layout.ClientSize.Width - 12), 0);
+        viewport.SizeChanged += (_, _) => help.MaximumSize = new Size(Math.Max(120, viewport.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 12), 0);
+        layout.Controls.Add(viewport, 0, 0); layout.Controls.Add(summary, 0, 1); layout.Controls.Add(list, 0, 2);
         Controls.Add(layout);
     }
 
@@ -88,6 +94,7 @@ internal sealed class DiagnosticsPanel : UserControl
     internal void ApplyPreferences(ProbePreferences value)
     {
         https.Text = value.Https; ip.Text = value.IpService; timeout.Value = value.TimeoutSeconds;
+        direct.Checked = false; publicIp.Checked = false;
     }
 
     internal void SetBusy(bool busy)
@@ -132,10 +139,10 @@ internal sealed class DiagnosticsPanel : UserControl
         report.Enabled = results.Count > 0;
     }
 
-    private void PreviewReport()
+    internal void PreviewReport()
     {
         var content = DiagnosticReport.Create(results);
-        using var dialog = new Form { Text = "Sanitized report preview", Size = new Size(760, 580), MinimumSize = new Size(500, 350), StartPosition = FormStartPosition.CenterParent };
+        using var dialog = new Form { Text = "Sanitized report preview", AutoScaleDimensions = new SizeF(96, 96), AutoScaleMode = AutoScaleMode.Dpi, Size = new Size(760, 580), MinimumSize = new Size(500, 350), StartPosition = FormStartPosition.CenterParent };
         var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both, Text = content };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true };
         var copy = new Button { Text = "Copy", AutoSize = true };

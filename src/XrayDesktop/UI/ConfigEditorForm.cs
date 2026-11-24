@@ -21,7 +21,8 @@ internal sealed class ConfigEditorForm : Form
         bom = bytes.AsSpan().StartsWith(new byte[] { 0xef, 0xbb, 0xbf });
         initialText = new UTF8Encoding(false, true).GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
         Text = "Configuration editor (local plaintext)"; StartPosition = FormStartPosition.CenterParent;
-        MinimumSize = new Size(640, 440); Size = new Size(850, 650); AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
+        MinimumSize = new Size(500, 340); Size = new Size(850, 650);
         editor.Text = initialText;
         initialText = editor.Text;
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(8), WrapContents = true };

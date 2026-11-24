@@ -12,8 +12,9 @@ internal sealed class LogBuffer
         lock (sync)
         {
             lines.Enqueue((++sequence, text));
-            chars += text.Length;
-            while (lines.Count > 5000 || chars > 2 * 1024 * 1024) chars -= lines.Dequeue().Text.Length;
+            // Account for CRLF in the displayed/exported Windows text as well.
+            chars += text.Length + 2;
+            while (lines.Count > 5000 || chars > 2 * 1024 * 1024) chars -= lines.Dequeue().Text.Length + 2;
         }
     }
     internal (long Id, string[] Lines) ReadAfter(long id)
