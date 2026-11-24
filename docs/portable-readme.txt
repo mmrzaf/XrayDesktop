@@ -1,4 +1,4 @@
-Xray Desktop - Phase 2 development preview
+Xray Desktop - Phase 3 development preview
 ==========================================
 
 Windows x64. Extract the entire archive into a writable, private folder.
@@ -18,7 +18,8 @@ check TCP listener ownership. Listener ownership does not establish HTTP/SOCKS
 capability or remote connectivity.
 
 After Start, choose Enable system proxy and approve a single HTTPS test to
-https://example.com/ through the selected owned HTTP proxy. On success, the
+the Diagnostics HTTPS destination (default https://www.gstatic.com/generate_204)
+through the selected owned HTTP proxy. On success, the
 app manages the current user's default Windows LAN proxy. Local/intranet hosts
 bypass it. SOCKS-only or known authenticated endpoints are not eligible. The
 optional enable-after-Start checkbox is off by default, lasts for this GUI
@@ -39,7 +40,19 @@ the portable folder; do not delete it unless manual recovery is verified.
 An unreadable journal can be moved to a private backup after all app copies
 are closed and manual recovery is confirmed.
 
-No TUN, WinHTTP machine proxy or general internet diagnostics yet. The example
+Diagnostics: Run selected (default Local) or Run all. Configure HTTPS and IP
+service URLs and a 1-15 second network timeout. For direct DNS/TCP/HTTPS,
+explicitly check Allow direct; the destination may see your source IP. Enable
+public IP lookup separately. Proxied requests follow your Xray routing; a
+successful request or changed IP does not establish system-wide protection.
+Local details may show private addresses. Preview / export report reconstructs
+only fixed metadata and excludes raw config, URLs, addresses and logs. Save
+probe destinations locally only if you want them persisted; consent is never
+persisted. Diagnostics run sequentially with a 45-second suite budget, plus
+bounded native cleanup. Use Cancel operation to stop. For more, see docs/phase-3.md
+in the source repository.
+
+No TUN, WinHTTP machine proxy or speed test. The example
 uses a direct outbound; it is NOT a VPN or privacy-protecting connection.
 No third-party credentials or public requests are needed for default checks.
 

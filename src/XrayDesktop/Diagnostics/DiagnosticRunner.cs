@@ -58,7 +58,7 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
                     snapshot.Verify(); result = await core.ValidateAsync(snapshot, ct).ConfigureAwait(false);
                 }
                 foreach (var line in result.Output) context.LogValidation?.Invoke(line);
-                return result.ExitCode == 0 ? Pass("Native configuration validation succeeded.") : Fail(ResultCode.Invalid, $"Native validation exited {result.ExitCode}; inspect configuration locally.");
+                return result.ExitCode == 0 ? Pass("Native configuration validation succeeded.") : Fail(ResultCode.Invalid, $"Native validation exited {result.ExitCode}; inspect local Logs.");
             });
             await Run("D07", ProbePath.Local, localLimit, _ => Task.FromResult(Listener(context)));
             await Run("D13", ProbePath.Local, localLimit, _ => Task.FromResult(Proxy(context.ReadProxy())));
@@ -77,13 +77,13 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
                 if (!options.Direct || options.Remote is not { } remote) return Skip(ResultCode.NotRequested, "Direct remote probe not selected.");
                 if (IPAddress.TryParse(remote.Host, out _)) return Skip(ResultCode.NotApplicable, "IP literal; DNS unnecessary.");
                 var addresses = await NetworkProbes.ResolveAsync(remote.Host, ct).ConfigureAwait(false);
-                return addresses.Length == 0 ? Fail(ResultCode.Dns, "No addresses returned.") : Pass(string.Join(", ", addresses.Take(8).Select(a => a.ToString())));
+                return addresses.Length == 0 ? Fail(ResultCode.Dns, "No addresses returned.") : Pass($"{remote.Host}: {string.Join(", ", addresses.Take(8).Select(a => a.ToString()))}");
             });
             await Run("D06", ProbePath.Direct, options.NetworkTimeout, async ct =>
             {
                 if (!options.Direct || options.Remote is not { } remote) return Skip(ResultCode.NotRequested, "Direct remote probe not selected.");
                 await NetworkProbes.TcpAsync(remote, ct).ConfigureAwait(false);
-                return Pass("Direct TCP handshake succeeded; not a protocol or TLS test.");
+                return Pass($"Direct TCP handshake to {remote} succeeded; not a protocol or TLS test.");
             });
         }
         if (Includes(DiagnosticScope.Http)) await Run("D08", ProbePath.Http, options.NetworkTimeout, ct => Https(http, true, ct));
@@ -107,7 +107,7 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
             {
                 if (!options.PublicIp || !options.Direct) return Skip(ResultCode.NotRequested, "Direct IP lookup not approved.");
                 directIp = await NetworkProbes.PublicIpAsync(options.IpService, null, ct).ConfigureAwait(false);
-                return Pass($"Reported IP: {directIp}");
+                return Pass($"{options.IpService.Host}: reported IP {directIp}");
             });
             await Run("D12b", proxyPath, options.NetworkTimeout, async ct =>
             {
@@ -116,7 +116,7 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
                 if (!context.IsOwned(selected)) return Fail(ResultCode.NotOwned, "Listener not owned by live core.");
                 proxiedIp = await NetworkProbes.PublicIpAsync(options.IpService, selected, ct).ConfigureAwait(false);
                 if (!context.IsOwned(selected)) { proxiedIp = null; return Fail(ResultCode.NotOwned, "Listener ownership lost during request."); }
-                return Pass($"Reported IP: {proxiedIp}");
+                return Pass($"{options.IpService.Host}: reported IP {proxiedIp}; via {selected.Address}:{selected.Port}.");
             });
             await Run("D12c", ProbePath.Local, localLimit, _ => Task.FromResult(directIp is null || proxiedIp is null ? Skip(ResultCode.Unavailable, "Both IP results required.") : directIp.Equals(proxiedIp) ? Warn(ResultCode.SameIp, "Same IP; this alone does not prove proxy failure.") : (Outcome.Pass, ResultCode.DifferentIp, "Different IPs; this does not prove all traffic is proxied.")));
         }
@@ -128,7 +128,8 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
             if (endpoint is not null && !context.IsOwned(endpoint)) return Fail(ResultCode.NotOwned, "Listener not owned by live core.");
             var status = await NetworkProbes.HttpsAsync(options.Https, endpoint, ct).ConfigureAwait(false);
             if (endpoint is not null && !context.IsOwned(endpoint)) return Fail(ResultCode.NotOwned, "Listener ownership lost during request.");
-            return status is >= 200 and < 300 ? Pass($"HTTPS status {status}; time to response headers, not network RTT.") : Fail(ResultCode.HttpStatus, $"HTTPS status {status}; redirects not followed.");
+            var route = endpoint is null ? "direct" : $"via {endpoint.Address}:{endpoint.Port}";
+            return status is >= 200 and < 300 ? Pass($"HTTPS {options.Https.Host} ({route}) status {status}; time to headers, not RTT.") : Fail(ResultCode.HttpStatus, $"HTTPS {options.Https.Host} ({route}) status {status}; redirects not followed.");
         }
 
         async Task Run(string id, ProbePath path, TimeSpan limit, Func<CancellationToken, Task<(Outcome, ResultCode, string)>> probe)
@@ -137,7 +138,12 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
             (Outcome outcome, ResultCode code, string detail) value;
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(suite.Token);
             deadline.CancelAfter(limit);
-            try { deadline.Token.ThrowIfCancellationRequested(); value = await probe(deadline.Token).ConfigureAwait(false); deadline.Token.ThrowIfCancellationRequested(); }
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                if (suite.IsCancellationRequested) value = Skip(ResultCode.Timeout, "Suite budget exhausted; probe not attempted.");
+                else { deadline.Token.ThrowIfCancellationRequested(); value = await probe(deadline.Token).ConfigureAwait(false); deadline.Token.ThrowIfCancellationRequested(); }
+            }
             catch (OperationCanceledException) { value = token.IsCancellationRequested ? (Outcome.Cancelled, ResultCode.Cancelled, "Cancelled by user or session.") : Fail(ResultCode.Timeout, "Probe or suite deadline exceeded."); }
             catch (Exception ex) { value = Classify(ex); }
             var row = new DiagnosticResult(id, path, value.outcome, value.code, watch.ElapsedMilliseconds, timestamp, value.detail, id == "D01" && (value.outcome is Outcome.Pass or Outcome.Warning) ? detectedCoreVersion : null);
