@@ -24,8 +24,17 @@ checksum="$archive.sha256"
 [[ $(sha256sum -- "$archive") == "$(cat -- "$checksum")" ]] || { echo 'Release archive checksum mismatch.' >&2; exit 1; }
 
 # Re-resolve the tag before publication; do not attach a build to a moved tag.
-actual_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq '.sha')
-[[ $actual_commit == "$EXPECTED_COMMIT" ]] || { echo 'Tag no longer points to the tested commit.' >&2; exit 1; }
+# Resolve the exact tag ref, including annotated tags, rather than an ambiguous
+# short branch/tag name. Limit peeling to keep a malformed chain bounded.
+object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.type + " " + .object.sha')
+for ((depth = 0; depth < 8; depth++)); do
+    read -r kind sha <<< "$object"
+    [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid tag object SHA.' >&2; exit 1; }
+    if [[ $kind == commit ]]; then break; fi
+    [[ $kind == tag ]] || { echo 'Release tag does not reference a commit.' >&2; exit 1; }
+    object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.type + " " + .object.sha')
+done
+[[ $kind == commit && $sha == "$EXPECTED_COMMIT" ]] || { echo 'Tag no longer points to the tested commit.' >&2; exit 1; }
 
 # Never overwrite an existing release or its assets on a rerun.
 if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
