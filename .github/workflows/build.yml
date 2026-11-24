@@ -1,9 +1,11 @@
-name: Windows build
+name: Windows build and release
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+    tags: ['v*']
   pull_request:
+    branches: [main, develop]
   workflow_dispatch:
     inputs:
       hidden_ui_check:
@@ -16,12 +18,14 @@ permissions:
 
 concurrency:
   group: windows-build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   build:
     runs-on: windows-2025
     timeout-minutes: 20
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
     defaults:
       run:
         shell: pwsh
@@ -34,6 +38,13 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+
+      - name: Record checked-out commit
+        id: source
+        run: |
+          $commit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Could not identify source commit.' }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
 
       - name: Install pinned .NET SDK
         uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602 # v5.0.1
@@ -60,3 +71,29 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release scripts
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+
+      - name: Download the verified Windows package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: XrayDesktop-win-x64-${{ github.sha }}
+          path: release-assets
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ needs.build.outputs.commit }}
+        run: bash scripts/Publish-Release.sh release-assets
