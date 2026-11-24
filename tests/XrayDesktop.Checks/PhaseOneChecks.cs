@@ -39,7 +39,15 @@ internal static class PhaseOneChecks
     {
         var path = Path.Combine(Path.GetTempPath(), $"Xray Desktop – {Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-        try { run(path); } finally { Directory.Delete(path, recursive: true); }
+        Exception? failure = null;
+        try { run(path); }
+        catch (Exception ex) { failure = ex; throw; }
+        finally
+        {
+            try { Directory.Delete(path, recursive: true); }
+            catch (Exception cleanup) when (failure is not null)
+            { throw new AggregateException("Fixture and temporary-directory cleanup both failed.", failure, cleanup); }
+        }
     }
     private static void Inspect()
     {
@@ -149,9 +157,15 @@ internal static class PhaseOneChecks
     }
     private static async Task RealCoreAsync(string root, string executable)
     {
-        File.Copy(executable, Path.Combine(root, "xray.exe"));
-        var session = new SessionController(root, Path.Combine(root, "data"));
+        // The supplied core was already verified by CI. Run it in place, leaving
+        // its executable and assets outside the disposable configuration directory.
+        // Windows can retain an executable image/AV handle after process exit.
+        executable = Path.GetFullPath(executable);
+        if (!Path.GetFileName(executable).Equals("xray.exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(executable))
+            throw new FileNotFoundException("XRAY_TEST_CORE must point to an existing xray.exe.", executable);
+        var session = new SessionController(Path.GetDirectoryName(executable)!, Path.Combine(root, "data"));
         using var token = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        Console.WriteLine("Integration: core version and malformed configuration");
         await session.CheckAsync(token.Token); Assert(session.Version?.IsBaseline == true);
         var invalid = await session.ValidateAsync("{"u8.ToArray(), root, token.Token);
         Assert(invalid.ExitCode != 0 && !session.HasChild);
@@ -178,18 +192,22 @@ internal static class PhaseOneChecks
         var endpoint = endpoints.Single(e => e.Protocol == "http");
         try
         {
+            Console.WriteLine("Integration: validate and start synthetic configuration");
             var result = await session.ValidateAsync(bytes, root, token.Token); Assert(result.ExitCode == 0);
             await session.StartAsync(bytes, root, endpoint, token.Token);
             Assert(session.State == CoreState.Running && session.Pid is int pid && TcpListeners.IsOwned(endpoint, pid));
             foreach (var proxy in endpoints)
             {
+                Console.WriteLine($"Integration: verify {proxy.Protocol} traffic");
                 Assert(TcpListeners.IsOwned(proxy, session.Pid!.Value));
                 await VerifyLoopbackTrafficAsync(origin, proxy, token.Token);
             }
+            Console.WriteLine("Integration: stop and restart owned core");
             await session.StopAsync(); Assert(session.State == CoreState.Stopped && !session.HasChild);
             // Restart the same snapshot inputs, then simulate an unexpected owned-core exit.
             await session.StartAsync(bytes, root, endpoint, token.Token);
             using var process = Process.GetProcessById(session.Pid!.Value);
+            _ = process.SafeHandle;
             process.Kill();
             await process.WaitForExitAsync(token.Token);
             await session.PollAsync();
@@ -197,6 +215,12 @@ internal static class PhaseOneChecks
             await session.StartAsync(bytes, root, endpoint, token.Token);
             Assert(session.State == CoreState.Running && session.HasChild);
             await session.StopAsync(); Assert(!session.HasChild);
+        }
+        catch
+        {
+            // This fixture contains only generated loopback configuration, no private data.
+            foreach (var line in session.Log.ReadAfter(0).Lines) Console.Error.WriteLine(line);
+            throw;
         }
         finally { if (session.HasChild) await session.StopAsync(); }
     }

@@ -35,7 +35,7 @@ internal static class Program
             catch (Exception exception)
             {
                 failures++;
-                Console.Error.WriteLine($"FAIL: {check.Name}: {exception.Message}");
+                Console.Error.WriteLine($"FAIL: {check.Name}: {exception}");
             }
         }
         Console.WriteLine($"{checks.Length - failures}/{checks.Length} mandatory checks passed.");
@@ -51,7 +51,7 @@ internal static class Program
         else
         {
             try { PhaseOneChecks.RealCore(); Console.WriteLine("PASS: real Xray integration."); }
-            catch (Exception exception) { failures++; Console.Error.WriteLine($"FAIL: real Xray integration: {exception.Message}"); }
+            catch (Exception exception) { failures++; Console.Error.WriteLine($"FAIL: real Xray integration: {exception}"); }
         }
         if (Environment.GetEnvironmentVariable("XRAY_TEST_WININET_READ") == "1")
         {
