@@ -1,4 +1,4 @@
-Xray Desktop - Phase 3 development preview
+Xray Desktop - Phase 4 development preview
 ==========================================
 
 Windows x64. Extract the entire archive into a writable, private folder.
@@ -27,6 +27,20 @@ session and still asks before the test. Restore system proxy can leave Xray
 running. Stop/Restart/Close restore first; a failed restore requires explicit
 confirmation before force stop. Restart does not automatically reacquire proxy
 unless enable-after-Start is selected and the user approves again.
+
+Connection, Logs, Diagnostics and Settings are separate tabs. The tray icon
+shows core and proxy state; right-click for Show, Start, Stop, Enable, Restore
+and Exit. Double-click to reopen. Minimize-to-tray is off by default; opt in
+under Settings and save desktop preferences. Closing the window or choosing
+Exit still restores and stops the owned core. Tray commands reopen the window
+so confirmations remain visible. While busy, show the window and use Cancel
+operation; cancelling a network probe does not discard proxy recovery.
+
+Settings can remember window bounds and log auto-scroll, reset desktop/probe
+preferences, or clear profile references (never delete actual JSON files).
+Unreadable settings are retained until explicit replacement. Desktop settings
+are local to data/desktop.json. No automatic disk recording. Copy or save raw
+logs only after reviewing the sensitive-data warning.
 
 On abnormal GUI termination, Windows may still reference the dead listener.
 Reopen under the same Windows user; recovery runs before core detection.
@@ -57,12 +71,12 @@ uses a direct outbound; it is NOT a VPN or privacy-protecting connection.
 No third-party credentials or public requests are needed for default checks.
 
 Configurations and snapshots are plaintext in the app data directory; keep
-this directory private. Raw logs may include secrets. Copy raw logs requires
+this directory private. Raw logs may include secrets. Copy and save raw logs require
 confirmation. Runtime snapshots are removed on normal stop; a crash can leave
 stale snapshots. After verifying no owned core is active, remove stale files
 manually. No background cleanup or telemetry is implemented.
 
 Headless: --version, --self-test, --help. The self-test checks bootstrap
 metadata, not core functionality. SHA256SUMS.txt checks the archive payload;
-checksums do not prove publisher identity. See the repository for test status.
+checksums do not prove publisher identity. See the repository and docs/phase-4.md for test status.
 This is a development preview, not a certified stable release.
