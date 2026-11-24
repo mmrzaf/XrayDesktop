@@ -14,7 +14,7 @@ internal static class Program
             ("Help selects headless mode", () => Expect(StartupMode.Help, Bootstrap.ParseArguments(["--help"]))),
             ("Unknown argument is rejected", () => Expect(StartupMode.Invalid, Bootstrap.ParseArguments(["--unknown"]))),
             ("Multiple arguments are rejected", () => Expect(StartupMode.Invalid, Bootstrap.ParseArguments(["--version", "--self-test"]))),
-            ("Version metadata matches preview", () => Expect("0.1.0-preview.0", Bootstrap.Version)),
+            ("Version metadata matches preview", () => Expect("0.1.0-preview.1", Bootstrap.Version)),
             ("Core compatibility baseline is pinned", () => Expect("26.11.9", Bootstrap.TargetCoreVersion)),
             ("Headless self-test reports success", CheckSelfTest)
         };

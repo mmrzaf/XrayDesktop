@@ -1,4 +1,5 @@
 using XrayDesktop.UI;
+using XrayDesktop.Windows;
 
 namespace XrayDesktop;
 
@@ -19,9 +20,21 @@ internal static class Program
                 return 0;
             case StartupMode.Desktop:
                 ApplicationConfiguration.Initialize();
-                using (var form = new MainForm())
+                try
                 {
+                    using var instance = new SingleInstance();
+                    if (!instance.Acquired)
+                    {
+                        MessageBox.Show("Another Xray Desktop instance is already running for this user.", Bootstrap.ProductName);
+                        return 1;
+                    }
+                    using var form = new MainForm();
                     Application.Run(form);
+                }
+                catch (Exception exception)
+                {
+                    MessageBox.Show(exception.Message, Bootstrap.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return 1;
                 }
                 return 0;
             default:
