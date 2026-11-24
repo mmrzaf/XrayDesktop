@@ -116,8 +116,9 @@ internal sealed partial class MainForm : Form
                     lastProxyPoll = Environment.TickCount64;
                     // Read-only polling must not disable controls or steal focus while typing.
                     // Mutating commands await this task before accessing the proxy controller.
-                    proxyPoll = Task.Run(proxy.Inspect);
-                    try { await proxyPoll; }
+                    var pending = Task.Run(proxy.Inspect);
+                    proxyPoll = pending;
+                    try { await pending; }
                     finally { proxyPoll = null; if (!IsDisposed) Render(); }
                 }
             }
@@ -176,7 +177,7 @@ internal sealed partial class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException or InvalidDataException)
         {
-            desktopUnreadable = true;
+            desktopUnreadable = true; desktopPreferences = DesktopPreferences.Defaults; ApplyDesktopPreferences();
             desktopNotice.Text = "Desktop preferences unreadable; defaults in use. Original file retained until explicit save or reset.";
             session.Log.Add("app", "Desktop preferences unreadable; original retained.");
         }
@@ -432,7 +433,7 @@ internal sealed partial class MainForm : Form
         cancel.Enabled = busy && !closing;
         diagnostics.SetBusy(busy || closing);
         settingsBar.Enabled = !busy && !closing;
-        logBar.Enabled = !busy && !closing;
+        foreach (Control control in logBar.Controls) control.Enabled = !closing && (control == autoScroll || !busy);
         minimizeToTray.Enabled = rememberWindow.Enabled = !busy && !closing;
         foreach (Control control in settingsBar.Controls)
             if (control.Name == "Clear profile list") control.Enabled = !running && !busy && !closing;
