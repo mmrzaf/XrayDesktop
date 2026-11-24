@@ -43,6 +43,7 @@ internal sealed class SystemProxy : ISystemProxy
 
     public ProxySettings Read()
     {
+        ValidateNativeLayout();
         // Windows 7+ documents querying FLAGS_UI and restoring using FLAGS.
         Option[] options = [new(FlagsUi), new(Server), new(Bypass), new(Pac)];
         var list = new OptionList((uint)options.Length);
@@ -84,7 +85,7 @@ internal sealed class SystemProxy : ISystemProxy
 
     public void Write(ProxySettings settings)
     {
-        EnsureWritable(); settings.Validate();
+        ValidateNativeLayout(); EnsureWritable(); settings.Validate();
         Option[] options = [new(Flags) { Value = new IntPtr(settings.Flags) }, new(Server), new(Bypass), new(Pac)];
         var pin = GCHandle.Alloc(options, GCHandleType.Pinned);
         try
@@ -109,6 +110,14 @@ internal sealed class SystemProxy : ISystemProxy
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not notify Windows of proxy settings change.");
         if (!InternetSetOptionW(IntPtr.Zero, RefreshOption, IntPtr.Zero, 0))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not refresh Windows proxy settings.");
+    }
+
+    internal static void ValidateNativeLayout()
+    {
+        if (IntPtr.Size != 8 || Marshal.SizeOf<Option>() != 16 || Marshal.OffsetOf<Option>(nameof(Option.Value)).ToInt32() != 8 ||
+            Marshal.SizeOf<OptionList>() != 32 || Marshal.OffsetOf<OptionList>(nameof(OptionList.Connection)).ToInt32() != 8 ||
+            Marshal.OffsetOf<OptionList>(nameof(OptionList.Options)).ToInt32() != 24)
+            throw new InvalidOperationException("Unsupported WinINet structure layout.");
     }
 
     private static string ReadString(Option option) => Marshal.PtrToStringUni(option.Value) ?? string.Empty;

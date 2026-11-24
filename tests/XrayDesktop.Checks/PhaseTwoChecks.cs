@@ -35,6 +35,7 @@ internal static class PhaseTwoChecks
         ("Unreadable recovery blocks acquisition and restore", CorruptJournal),
         ("Authenticated and SOCKS endpoints cannot acquire system proxy", IneligibleEndpoints),
         ("IPv6 managed proxy syntax is canonical", Ipv6),
+        ("WinINet x64 structure size and field alignment", SystemProxy.ValidateNativeLayout),
         ("DPAPI journal round trip refuses overwrite and corruption", EncryptedJournal),
         ("HTTPS probe sends anonymous CONNECT only to the explicit proxy", ProxyProbe)
     ];
@@ -69,7 +70,7 @@ internal static class PhaseTwoChecks
         public void EnsureWritable() { if (Denied) throw new UnauthorizedAccessException("policy"); }
         public void Write(ProxySettings settings)
         {
-            if (store.Pending is null) throw new Exception("UNJOURNALED WRITE");
+            if (store.Pending is null) throw new System.Diagnostics.UnreachableException("UNJOURNALED WRITE");
             EnsureWritable(); Writes++;
             if (Partial) { Current = Current with { Server = settings.Server }; throw new IOException("partial write"); }
             Current = settings;

@@ -95,7 +95,12 @@ internal sealed class MainForm : Form
     private async Task InitializeAsync(CancellationToken token)
     {
         // Recovery precedes core detection, including when xray.exe is missing.
-        try { await Task.Run(proxy.Restore); }
+        try
+        {
+            var initial = await Task.Run(proxy.Inspect);
+            await Task.Run(proxy.Restore);
+            if (initial.Journal is not null) session.Log.Add("proxy", "Interrupted proxy transaction recovered and verified.");
+        }
         catch (Exception) { session.Log.Add("proxy", "Startup recovery incomplete; review Windows proxy before starting."); }
         try { settings = await Task.Run(store.Load, token); }
         catch (Exception ex) { settingsUnreadable = true; session.Log.Add("app", $"Settings unreadable; original retained: {ex.Message}"); }
