@@ -29,7 +29,13 @@ try {
 
     $project = 'src/XrayDesktop/XrayDesktop.csproj'
     $testProject = 'tests/XrayDesktop.Checks/XrayDesktop.Checks.csproj'
-    $version = ([xml] (Get-Content -LiteralPath $project -Raw)).Project.PropertyGroup.Version
+    $version = ([xml] (Get-Content -LiteralPath 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
+    if ($version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
+        throw 'Directory.Build.props must declare a version such as 1.0.0 or 1.0.0-rc.1.'
+    }
+    if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
+        throw "Tag '$($env:GITHUB_REF_NAME)' must match the application version v$version."
+    }
     $output = Join-Path $root 'artifacts/phase5'
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Recurse -Force
@@ -59,7 +65,7 @@ try {
     & (Join-Path $PSScriptRoot 'New-PortablePackage.ps1') -PublishDirectory $publish -OutputDirectory $dist -ExpectedVersion $version
     if ($env:GITHUB_STEP_SUMMARY) {
         @(
-            '## Phase 5 Windows release candidate',
+            '## Windows build and package',
             '',
             ('- SDK: ' + $sdk),
             ('- App version: ' + $version),

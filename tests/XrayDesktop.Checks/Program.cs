@@ -1,3 +1,4 @@
+using System.Reflection;
 using XrayDesktop;
 
 namespace XrayDesktop.Checks;
@@ -18,7 +19,7 @@ internal static class Program
             ("Help selects headless mode", () => Expect(StartupMode.Help, Bootstrap.ParseArguments(["--help"]))),
             ("Unknown argument is rejected", () => Expect(StartupMode.Invalid, Bootstrap.ParseArguments(["--unknown"]))),
             ("Multiple arguments are rejected", () => Expect(StartupMode.Invalid, Bootstrap.ParseArguments(["--version", "--self-test"]))),
-            ("Version metadata matches preview", () => Expect("1.0.0-rc.1", Bootstrap.Version)),
+            ("Application and test version metadata match", () => Expect(typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, Bootstrap.Version)),
             ("Core compatibility baseline is pinned", () => Expect("26.11.9", Bootstrap.TargetCoreVersion)),
             ("Headless self-test reports success", CheckSelfTest)
         };
