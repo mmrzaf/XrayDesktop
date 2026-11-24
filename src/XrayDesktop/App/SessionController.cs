@@ -25,6 +25,14 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
     internal string Readiness { get; private set; } = "Not running";
     internal DateTimeOffset? Started { get; private set; }
     internal int? LastExitCode { get; private set; }
+    internal Inbound? ActiveEndpoint { get; private set; }
+    internal bool CanProbeHttp => HasChild && !ChildExited && ActiveEndpoint is { Protocol: "http" } endpoint && (!endpoint.Authenticated || endpoint.Manual);
+
+    internal void VerifyHttpOwner()
+    {
+        if (!CanProbeHttp || child is null || ActiveEndpoint is not { } endpoint || !TcpListeners.IsOwned(endpoint, child.Id) || child.HasExited)
+            throw new InvalidOperationException("A live, owned HTTP loopback listener is required; check the selected endpoint.");
+    }
 
     internal async Task CheckAsync(CancellationToken token)
     {
@@ -98,6 +106,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
                 { Log.Add("app", $"Listener ownership check unavailable: {ex.Message}"); break; }
             } while (!verified && deadline.Elapsed < TimeSpan.FromSeconds(5));
             Readiness = selected is null ? "Not checked (local-only)" : verified ? "Selected TCP listener owned by Xray" : "Selected listener ownership not verified";
+            ActiveEndpoint = selected;
             State = CoreState.Running;
             Log.Add("app", $"Xray process {child.Id} running. {Readiness}. Connectivity not tested.");
         }
@@ -127,6 +136,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
 
     private async Task ReleaseAsync()
     {
+        ActiveEndpoint = null;
         if (child is not null)
         {
             var owned = child;
