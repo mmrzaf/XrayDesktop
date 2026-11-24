@@ -37,7 +37,7 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
         {
             await Run("D01", ProbePath.Local, localLimit, async ct =>
             {
-                if (!core.Exists) return Fail(ResultCode.Missing, "Adjacent xray.exe not found.");
+                if (!core.Exists) return Fail(ResultCode.Missing, "Bundled xray.exe not found.");
                 var check = await core.CheckAsync(ct).ConfigureAwait(false);
                 detectedCoreVersion = check.Version;
                 return check.IsBaseline ? Pass($"Xray {check.Version}") : Warn(ResultCode.BaselineMismatch, $"Xray {check.Version}; outside baseline.");

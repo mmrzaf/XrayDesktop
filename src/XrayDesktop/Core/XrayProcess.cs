@@ -28,7 +28,7 @@ internal sealed class XrayProcess(string baseDirectory)
 
     internal async Task<CoreCheck> CheckAsync(CancellationToken token)
     {
-        if (!Exists) throw new FileNotFoundException("Put a trusted xray.exe beside XrayDesktop.exe.");
+        if (!Exists) throw new FileNotFoundException("Bundled xray.exe is missing; restore it beside XrayDesktop.exe.");
         var result = await ExecuteAsync(BuildStartInfo(Path.GetDirectoryName(Executable)!, "version"), TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
         if (result.ExitCode != 0) throw new InvalidOperationException($"Xray version command exited with code {result.ExitCode}.");
         var version = ParseVersion(result.Output);
