@@ -40,7 +40,14 @@ internal static class Program
         }
         Console.WriteLine($"{checks.Length - failures}/{checks.Length} mandatory checks passed.");
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("XRAY_TEST_CORE")))
-            Console.WriteLine("SKIP: real Xray integration (XRAY_TEST_CORE not set).");
+        {
+            if (Environment.GetEnvironmentVariable("XRAY_REQUIRE_TEST_CORE") == "1")
+            {
+                failures++;
+                Console.Error.WriteLine("FAIL: required real Xray integration core was not supplied.");
+            }
+            else Console.WriteLine("SKIP: real Xray integration (XRAY_TEST_CORE not set).");
+        }
         else
         {
             try { PhaseOneChecks.RealCore(); Console.WriteLine("PASS: real Xray integration."); }

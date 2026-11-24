@@ -40,8 +40,15 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Download and verify exact integration core
+        run: |
+          $core = ./scripts/Get-TestCore.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP "xray-test-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)")
+          "XRAY_TEST_CORE=$core" >> $env:GITHUB_ENV
+
       - name: Build, check and package
         env:
+          XRAY_REQUIRE_TEST_CORE: '1'
+          XRAY_TEST_WININET_READ: '1'
           XRAY_TEST_UI: ${{ inputs.hidden_ui_check && '1' || '0' }}
         run: ./scripts/Build.ps1
 
