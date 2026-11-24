@@ -1,6 +1,6 @@
 # Phase 5 — release candidate and acceptance status
 
-**Candidate:** `1.0.0-rc.1` (source only). **Stable release:** NOT APPROVED.
+**Candidate:** `0.1.0` (source only). **Stable release:** NOT APPROVED.
 
 The SDD requires actual Windows build and runtime evidence. Prior source previews did not satisfy their exit gates. This phase prepares a candidate, not a claim of acceptance. No stable tag, signed executable, or release attachment has been created.
 

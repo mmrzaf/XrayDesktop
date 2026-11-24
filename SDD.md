@@ -244,7 +244,7 @@ One GitHub Actions workflow initially; Windows hosted runner pinned to a concret
 3. Obtain pinned core from official GitHub release for integration tests only, verify release asset checksum using pinned trusted digest/checksum file, extract to CI temp. Confirm version and run fixture tests. No public endpoint dependency for functional CI. Fail clearly if official asset unavailable; do not silently skip required integration checks or replace with latest.
 4. Publish GUI with `dotnet publish src/XrayDesktop/XrayDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o <staging>` (restore/publish properties must match; confirm actual outputs). Do not rely on cross-compilation as proof of runtime behavior.
 5. Assert staged EXE exists; run `--self-test` or `--version` headless path that exits without changing proxy; fail on nonzero or timeout. Package only expected files, verify ZIP contents, compute SHA-256, upload artifact and build/test summaries. Test GUI behavior separately on real desktop. Never upload CI core, test logs containing secrets, private config, or build caches.
-6. Release only after manual gate: tag `v1.0.0`, attach verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
+6. Release only after manual gate: tag `v0.1.0`, attach verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
 
 ## 13. Implementation plan (ordered, gated; no time promises)
 
