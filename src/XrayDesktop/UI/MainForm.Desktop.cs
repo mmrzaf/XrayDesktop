@@ -36,7 +36,13 @@ internal sealed partial class MainForm
         void FitLabels()
         {
             var width = Math.Max(120, viewport.ClientSize.Width - viewport.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 12);
-            foreach (var label in controls.OfType<Label>()) label.MaximumSize = new Size(width, 0);
+            foreach (var label in controls.SelectMany(Flatten).OfType<Label>()) label.MaximumSize = new Size(width, 0);
+        }
+        static IEnumerable<Control> Flatten(Control control)
+        {
+            yield return control;
+            foreach (Control child in control.Controls)
+                foreach (var descendant in Flatten(child)) yield return descendant;
         }
         viewport.SizeChanged += (_, _) => FitLabels();
         FitLabels();
@@ -137,7 +143,7 @@ internal sealed partial class MainForm
     {
         if (disposing && !desktopDisposed)
         {
-            desktopDisposed = true; timer.Dispose(); tray.Visible = false; tray.Dispose(); trayMenu.Dispose();
+            desktopDisposed = true; timer.Dispose(); tips.Dispose(); tray.Visible = false; tray.Dispose(); trayMenu.Dispose();
         }
         base.Dispose(disposing);
     }

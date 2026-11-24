@@ -19,7 +19,7 @@ internal sealed class DiagnosticsPanel : UserControl
     private readonly Button all = new() { Text = "Run all", AutoSize = true };
     private readonly Button savePreferences = new() { Text = "Save destinations locally", AutoSize = true };
     private readonly Button report = new() { Text = "Preview / export report", AutoSize = true, Enabled = false };
-    private readonly Label summary = new() { AutoSize = true, Text = "No diagnostics run." };
+    private readonly Label summary = new() { AutoSize = true, Text = "No diagnostics run yet. Run Local first when something is not working." };
     private readonly TableLayoutPanel options = new() { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
     private readonly ListView list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, ShowItemToolTips = true };
     private readonly List<DiagnosticResult> results = [];
@@ -32,6 +32,8 @@ internal sealed class DiagnosticsPanel : UserControl
     internal DiagnosticsPanel()
     {
         Dock = DockStyle.Fill;
+        selected.Font = new Font(selected.Font, FontStyle.Bold);
+        selected.MinimumSize = new Size(120, 32);
         scope.Items.AddRange(Enum.GetValues<DiagnosticScope>().Where(x => x != DiagnosticScope.All).Cast<object>().ToArray());
         scope.SelectedItem = DiagnosticScope.Local;
         remote.SelectedIndexChanged += (_, _) => { if (remote.SelectedItem is RemoteTarget target) { host.Text = target.Host; port.Value = target.Port; } };
@@ -44,7 +46,7 @@ internal sealed class DiagnosticsPanel : UserControl
         AddRow("Remote", remote, host, port);
         AddRow("Consent", direct);
         AddRow("Run", scope, selected, all, report, savePreferences);
-        var help = new Label { AutoSize = true, MaximumSize = new Size(800, 0), Text = "Run sends requests only for the selected group(s). Proxy tests use the selected protocol endpoint or its unique anonymous inbound; selected-path comparison prefers HTTP when none is selected. Direct requests bypass Windows proxy. TLS stays verified; Xray routing determines outbound. Results below are private; report export omits addresses and raw text." };
+        var help = new Label { AutoSize = true, MaximumSize = new Size(800, 0), Text = "Troubleshooting: run Local first. It checks the bundled Xray version, configuration inspection, native validation, local listener and Windows proxy without sending traffic. Remote tests are opt-in; direct tests reveal your source IP. Results stay local, and exported reports omit addresses and raw text." };
         options.Controls.Add(help);
         list.Columns.Add("Probe", 190); list.Columns.Add("Path", 75); list.Columns.Add("Result", 80); list.Columns.Add("ms", 65); list.Columns.Add("Detail (local only)", 650);
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };

@@ -25,8 +25,10 @@ internal sealed class ConfigEditorForm : Form
         MinimumSize = new Size(500, 340); Size = new Size(850, 650);
         editor.Text = initialText;
         initialText = editor.Text;
+        var hint = new Label { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 4), ForeColor = SystemColors.GrayText,
+            Text = "Edit the raw local configuration. Save writes the file and closes this window; Validate asks Xray to check the current text without saving. The file is plaintext, so keep the folder private." };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(8), WrapContents = true };
-        Add(bar, "Save", () => { try { SavedBytes = GetBytes(); DialogResult = DialogResult.OK; Close(); } catch (Exception ex) { ShowError(ex); } });
+        Add(bar, "Save changes", () => { try { SavedBytes = GetBytes(); DialogResult = DialogResult.OK; Close(); } catch (Exception ex) { ShowError(ex); } }, primary: true);
         Add(bar, "Format strict JSON", Format);
         var check = new Button { Text = "Validate with Xray", AutoSize = true };
         check.Click += async (_, _) =>
@@ -38,7 +40,7 @@ internal sealed class ConfigEditorForm : Form
         };
         bar.Controls.Add(check);
         Add(bar, "Cancel", Close);
-        Controls.Add(editor); Controls.Add(bar);
+        Controls.Add(editor); Controls.Add(hint); Controls.Add(bar);
         FormClosing += (_, e) =>
         {
             if (busy) { e.Cancel = true; return; }
@@ -63,6 +65,13 @@ internal sealed class ConfigEditorForm : Form
         }
         catch (JsonException) { MessageBox.Show(this, "Formatting requires strict JSON. JSONC comments/trailing commas are not removed automatically.", "Format", MessageBoxButtons.OK, MessageBoxIcon.Information); }
     }
-    private static void Add(FlowLayoutPanel bar, string text, Action action) { var button = new Button { Text = text, AutoSize = true }; button.Click += (_, _) => action(); bar.Controls.Add(button); }
+    private static Button Add(FlowLayoutPanel bar, string text, Action action, bool primary = false)
+    {
+        var button = new Button { Text = text, AutoSize = true };
+        if (primary) { button.Font = new Font(button.Font, FontStyle.Bold); button.MinimumSize = new Size(130, 32); }
+        button.Click += (_, _) => action();
+        bar.Controls.Add(button);
+        return button;
+    }
     private void ShowError(Exception ex) => MessageBox.Show(this, ex.Message, "Configuration", MessageBoxButtons.OK, MessageBoxIcon.Error);
 }

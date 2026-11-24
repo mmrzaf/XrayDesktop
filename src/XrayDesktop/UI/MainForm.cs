@@ -17,15 +17,23 @@ internal sealed partial class MainForm : Form
     private bool diagnosing;
     private readonly ProxyController proxy = new(new SystemProxy(), ProxyRecovery.ForCurrentUser());
     private readonly FlowLayoutPanel proxyBar = Bar();
-    private readonly Label proxyStatus = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
+    private readonly Label proxyStatus = new() { AutoSize = true, MaximumSize = new Size(380, 0) };
     private readonly CheckBox enableOnStart = new() { Text = "Enable proxy after Start (ask first)", AutoSize = true, Checked = false };
     private long lastProxyPoll;
     private Task<ProxyStatus>? proxyPoll;
     private readonly ComboBox profiles = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, DisplayMember = "Name" };
     private readonly ComboBox endpoints = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 360 };
     private readonly Label status = new() { AutoSize = true };
+    private readonly Label headline = new() { AutoSize = true, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold), MaximumSize = new Size(780, 0) };
+    private readonly Label nextStep = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label details = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label warnings = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
+    private readonly Panel errorPanel = new() { Dock = DockStyle.Top, AutoSize = true, Visible = false, Padding = new Padding(10), BackColor = Color.FromArgb(253, 231, 233) };
+    private readonly Label errorText = new() { AutoSize = true, MaximumSize = new Size(760, 0) };
+    private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    private readonly TabPage logTab = new("Logs");
+    private readonly ToolTip tips = new() { AutoPopDelay = 15000, InitialDelay = 400, ReshowDelay = 100, ShowAlways = true };
+    private string? lastError;
     private readonly TextBox logs = new() { Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 9) };
     private readonly FlowLayoutPanel profileBar = Bar(), coreBar = Bar(), logBar = Bar(), settingsBar = Bar();
     private readonly Button manual = new() { Text = "Manual endpoint", AutoSize = true };
@@ -42,49 +50,93 @@ internal sealed partial class MainForm : Form
     {
         Text = $"{Bootstrap.ProductName} — {Bootstrap.Version}"; StartPosition = FormStartPosition.CenterScreen;
         AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
-        MinimumSize = new Size(620, 460); Size = new Size(1000, 760);
+        MinimumSize = new Size(700, 520); Size = new Size(1040, 760);
         var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(10), ColumnCount = 1, RowCount = 3 };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        content.RowStyles.Add(new RowStyle(SizeType.AutoSize)); content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        profileBar.Controls.Add(profiles);
-        Add(profileBar, "Import", ImportAsync); Add(profileBar, "New", NewAsync); Add(profileBar, "Edit", EditAsync); Add(profileBar, "Save As", SaveAsAsync); Add(profileBar, "Remove reference", RemoveAsync); Add(profileBar, "Reload", InspectAsync);
-        var endpointBar = Bar(); endpointBar.Controls.Add(new Label { Text = "Local endpoint to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints); endpointBar.Controls.Add(manual);
-        manual.Click += async (_, _) => await RunAsync(_ => { SelectManualEndpoint(); return Task.CompletedTask; });
-        Add(coreBar, "Check core", CheckAsync); Add(coreBar, "Validate", ValidateAsync); Add(coreBar, "Start", StartAsync); Add(coreBar, "Stop", async _ => { await StopCoreAsync(); }); Add(coreBar, "Restart", async token => { if (await StopCoreAsync()) await StartAsync(token); });
-        var commands = Bar(); commands.Controls.Add(cancel);
+
+        // A persistent summary keeps the current state, the next useful action and
+        // the last error visible on every tab instead of hiding them in Logs.
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 4) };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var summary = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
+        summary.Controls.AddRange([headline, nextStep, status]);
+        var headerActions = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(10, 0, 0, 0) };
         cancel.Click += (_, _) => operation?.Cancel();
-        Add(proxyBar, "Enable system proxy", EnableProxyAsync);
-        Add(proxyBar, "Restore system proxy", _ => RestoreProxyAsync());
-        Add(proxyBar, "Review / resolve", _ => ReviewProxyAsync());
+        headerActions.Controls.AddRange([cancel, proxyStatus]);
+        header.Controls.Add(summary, 0, 0); header.Controls.Add(headerActions, 1, 0);
+
+        var errorActions = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0, 6, 0, 0) };
+        var openLogs = new Button { Text = "Open Logs", AutoSize = true };
+        openLogs.Click += (_, _) => tabs.SelectedTab = logTab;
+        var dismissError = new Button { Text = "Dismiss", AutoSize = true };
+        dismissError.Click += (_, _) => { lastError = null; Render(); };
+        errorActions.Controls.AddRange([openLogs, dismissError]);
+        var errorLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 2 };
+        errorLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        errorLayout.Controls.Add(errorText, 0, 0); errorLayout.Controls.Add(errorActions, 0, 1);
+        errorPanel.Controls.Add(errorLayout);
+
+        profileBar.Controls.Add(new Label { Text = "Profile:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) });
+        profileBar.Controls.Add(profiles);
+        Add(profileBar, "Import configuration…", ImportAsync, "Import", primary: true);
+        Add(profileBar, "New configuration…", NewAsync, "New");
+        Add(profileBar, "Edit…", EditAsync, "Edit");
+        Add(profileBar, "Save as…", SaveAsAsync, "Save As");
+        Add(profileBar, "Reload", InspectAsync, "Reload");
+        Add(profileBar, "Remove reference", RemoveAsync, "Remove");
+        var endpointBar = Bar(); endpointBar.Controls.Add(new Label { Text = "Listener to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints); endpointBar.Controls.Add(manual);
+        manual.Click += async (_, _) => await RunAsync(_ => { SelectManualEndpoint(); return Task.CompletedTask; });
+        Add(coreBar, "Check core", CheckAsync, "Check core");
+        Add(coreBar, "Validate configuration", ValidateAsync, "Validate");
+        Add(coreBar, "Start Xray", StartAsync, "Start", primary: true);
+        Add(coreBar, "Stop Xray", async _ => { await StopCoreAsync(); }, "Stop");
+        Add(coreBar, "Restart Xray", async token => { if (await StopCoreAsync()) await StartAsync(token); }, "Restart");
+        Add(proxyBar, "Enable system proxy", EnableProxyAsync, "Enable system proxy");
+        Add(proxyBar, "Restore system proxy", _ => RestoreProxyAsync(), "Restore system proxy");
+        Add(proxyBar, "Review / resolve", _ => ReviewProxyAsync(), "Review / resolve");
         proxyBar.Controls.Add(enableOnStart);
-        Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; });
-        Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; });
-        Add(logBar, "Save raw logs…", SaveRawLogsAsync);
+        Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; }, "Clear logs");
+        Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; }, "Copy raw logs");
+        Add(logBar, "Save raw logs…", SaveRawLogsAsync, "Save raw logs");
         logBar.Controls.Add(autoScroll);
-        // Keep status and cancellation available on every tab. The connection and
-        // settings pages scroll independently rather than squeezing the log/results view.
-        content.Controls.Add(status, 0, 0); content.Controls.Add(commands, 0, 1);
-        commands.Controls.Add(proxyStatus);
-        var tabs = new TabControl { Dock = DockStyle.Fill };
-        var connectionTab = new TabPage("Connection");
-        AddScrollablePage(connectionTab, [new Label { Text = "Configuration profile", AutoSize = true }, profileBar, details, warnings,
-            endpointBar, coreBar, new Label { Text = "Windows LAN proxy (not a VPN)", AutoSize = true }, proxyBar]);
-        var logTab = new TabPage("Logs"); logBar.Dock = DockStyle.Bottom; logTab.Controls.Add(logs); logTab.Controls.Add(logBar);
+
+        var connectionTab = new TabPage("Start");
+        AddScrollablePage(connectionTab, [
+            Section("1. Choose a configuration", profileBar, details, warnings),
+            Section("2. Choose the listener to verify (optional)", endpointBar,
+                Hint("Pick the local HTTP or SOCKS port Xray will open. Choose None for a local-only run. An HTTP listener is required only if you plan to enable the Windows system proxy.")),
+            Section("3. Validate and run Xray",
+                Hint("Validate asks Xray to check the configuration. Start runs it without changing any Windows proxy setting."), coreBar),
+            Section("4. Route Windows apps through Xray (optional)",
+                Hint("Enable asks permission for one HTTPS test, then applies the Windows LAN proxy and records your previous settings so they can be restored."), proxyBar)
+        ]);
+        logBar.Dock = DockStyle.Bottom; logTab.Controls.Add(logs); logTab.Controls.Add(logBar);
         var diagnosticTab = new TabPage("Diagnostics"); diagnosticTab.Controls.Add(diagnostics);
         var settingsTab = new TabPage("Settings");
-        Add(settingsBar, "Save desktop preferences", SaveDesktopAsync);
-        Add(settingsBar, "Reset preferences", ResetDesktopAsync);
-        Add(settingsBar, "Clear profile list", ClearProfilesAsync);
+        Add(settingsBar, "Save desktop preferences", SaveDesktopAsync, "Save desktop preferences");
+        Add(settingsBar, "Reset preferences", ResetDesktopAsync, "Reset preferences");
+        Add(settingsBar, "Clear profile list", ClearProfilesAsync, "Clear profile list");
         AddScrollablePage(settingsTab, [new Label { Text = "Desktop preferences", AutoSize = true }, minimizeToTray, rememberWindow,
             desktopNotice, settingsBar, new Label { Text = "Log auto-scroll is on the Logs tab; Save desktop preferences remembers it. Raw logs are in memory unless explicitly exported.\nProbe URLs and timeouts are saved on Diagnostics; enable-after-Start and network consent are session-only.\nClearing the profile list never deletes configuration files, logs on disk, or the proxy recovery journal.", AutoSize = true, Name = "settingsHelp" }]);
-        tabs.TabPages.AddRange([connectionTab, logTab, diagnosticTab, settingsTab]); content.Controls.Add(tabs, 0, 2);
+        tabs.TabPages.AddRange([connectionTab, logTab, diagnosticTab, settingsTab]);
+        content.Controls.Add(header, 0, 0); content.Controls.Add(errorPanel, 0, 1); content.Controls.Add(tabs, 0, 2);
         content.SizeChanged += (_, _) =>
         {
             var width = Math.Max(120, content.ClientSize.Width - content.Padding.Horizontal - 12);
+            headline.MaximumSize = new Size(width, 0);
+            nextStep.MaximumSize = new Size(width, 0);
             status.MaximumSize = new Size(width, 0);
-            proxyStatus.MaximumSize = new Size(Math.Max(120, width - cancel.Width - 20), 0);
+            errorText.MaximumSize = new Size(Math.Max(120, width - 24), 0);
+            proxyStatus.MaximumSize = new Size(Math.Max(180, Math.Min(380, width / 3)), 0);
         };
+        tips.SetToolTip(profiles, "Select the configuration profile to use.");
+        tips.SetToolTip(manual, "Enter a loopback port manually when the JSON cannot be inspected.");
+        tips.SetToolTip(enableOnStart, "After a successful Start, ask before changing the Windows proxy.");
+        tips.SetToolTip(endpoints, "The app verifies that this local port is owned by the Xray process it starts.");
         diagnostics.RunRequested += async scope => await RunAsync(token => RunDiagnosticsAsync(scope, token));
         diagnostics.SavePreferencesRequested += async () => await RunAsync(SaveProbePreferencesAsync);
         diagnostics.ReportRequested += async () => await RunAsync(_ => { diagnostics.PreviewReport(); return Task.CompletedTask; });
@@ -130,16 +182,37 @@ internal sealed partial class MainForm : Form
     }
 
     private static FlowLayoutPanel Bar() => new() { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = new Padding(0, 2, 0, 2) };
-    private void Add(FlowLayoutPanel bar, string text, Func<CancellationToken, Task> command)
+    private static Label Hint(string text) => new() { Text = text, AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(780, 0), Margin = new Padding(3, 2, 3, 6) };
+    private static GroupBox Section(string title, params Control[] controls)
     {
-        var button = new Button { Text = text, AutoSize = true, Name = text };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, Padding = new Padding(0), Margin = new Padding(0) };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < controls.Length; i++)
+        {
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.Controls.Add(controls[i], 0, i);
+        }
+        var group = new GroupBox { Text = title, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, Padding = new Padding(10, 6, 10, 10), Margin = new Padding(0, 4, 0, 8) };
+        group.Controls.Add(layout);
+        return group;
+    }
+    private Button Add(FlowLayoutPanel bar, string text, Func<CancellationToken, Task> command, string? name = null, bool primary = false)
+    {
+        var button = new Button { Text = text, AutoSize = true, Name = name ?? text };
+        if (primary)
+        {
+            button.Font = new Font(button.Font, FontStyle.Bold);
+            button.MinimumSize = new Size(130, 34);
+            button.Padding = new Padding(8, 4, 8, 4);
+        }
         button.Click += async (_, _) => await RunAsync(command);
         bar.Controls.Add(button);
+        return button;
     }
     private async Task RunAsync(Func<CancellationToken, Task> command, bool quiet = false)
     {
         if (busy || closing) return;
-        busy = true; using var source = new CancellationTokenSource(); operation = source; Render();
+        busy = true; using var source = new CancellationTokenSource(); operation = source; lastError = null; Render();
         try
         {
             await WaitForProxyPollAsync();
@@ -147,7 +220,7 @@ internal sealed partial class MainForm : Form
             await command(source.Token);
         }
         catch (OperationCanceledException) when (source.IsCancellationRequested) { session.Log.Add("app", "Operation cancelled."); }
-        catch (Exception ex) { session.Log.Add("app", ex.Message); if (!quiet && !closing) ShowError(ex); }
+        catch (Exception ex) { if (!quiet && !closing) ShowError(ex); else session.Log.Add("app", ex.Message); }
         finally { operation = null; busy = false; Render(); if (closing && !IsDisposed) BeginInvoke((Action)Close); }
     }
     private async Task WaitForProxyPollAsync()
@@ -239,7 +312,9 @@ internal sealed partial class MainForm : Form
     private async Task<string> ValidateEditorAsync(byte[] bytes, string directory, CancellationToken token)
     {
         var result = await Task.Run(() => session.ValidateAsync(bytes, directory, token), token);
-        return $"Xray validation exit {result.ExitCode} ({result.Elapsed.TotalMilliseconds:0} ms). See main window logs for local output.";
+        return result.ExitCode == 0
+            ? $"Configuration is valid. Xray completed validation in {result.Elapsed.TotalMilliseconds:0} ms."
+            : $"Xray rejected the configuration (exit {result.ExitCode}) after {result.Elapsed.TotalMilliseconds:0} ms. Open Logs for the exact error output.";
     }
     private async Task RemoveAsync(CancellationToken token)
     {
@@ -419,6 +494,9 @@ internal sealed partial class MainForm : Form
             status.Text = $"Core: {session.State} | Version: {session.Version?.Version ?? "unknown"} | PID: {session.Pid?.ToString() ?? "—"} | Uptime: {uptime}\n{session.Readiness} | Last exit: {session.LastExitCode?.ToString() ?? "—"} | Connectivity: not monitored";
         }
         profileBar.Enabled = !busy && !running && !closing; endpoints.Enabled = !busy && !running && !closing; manual.Enabled = endpoints.Enabled && Selected is not null;
+        foreach (Control control in profileBar.Controls)
+            if (control is Button { Name: "Edit" or "Save As" or "Remove" or "Reload" })
+                control.Enabled = !busy && !running && !closing && Selected is not null;
         foreach (Control control in coreBar.Controls) control.Enabled = !busy && !closing && (control.Name switch { "Stop" or "Restart" => running, "Check core" => !running, _ => !running && Selected is not null });
         var currentProxy = proxy.Status;
         proxyStatus.Text = $"Windows LAN proxy: {currentProxy.State} — {currentProxy.Detail}";
@@ -430,6 +508,7 @@ internal sealed partial class MainForm : Form
             "Review / resolve" => true,
             _ => !running
         });
+        UpdateGuidance(running, currentProxy);
         cancel.Enabled = busy && !closing;
         diagnostics.SetBusy(busy || closing);
         settingsBar.Enabled = !busy && !closing;
@@ -460,6 +539,76 @@ internal sealed partial class MainForm : Form
             else { logs.Select(Math.Min(selection, logs.TextLength), Math.Min(selectionLength, Math.Max(0, logs.TextLength - selection))); logs.ScrollToCaret(); }
         }
     }
+    private void UpdateGuidance(bool running, ProxyStatus currentProxy)
+    {
+        errorPanel.Visible = !string.IsNullOrWhiteSpace(lastError);
+        errorText.Text = lastError ?? string.Empty;
+
+        if (closing)
+        {
+            headline.Text = "Closing…";
+            nextStep.Text = "Stopping the owned core and restoring any managed Windows proxy setting.";
+            return;
+        }
+        if (busy)
+        {
+            headline.Text = "Working…";
+            nextStep.Text = "Wait for this operation to finish, or click Cancel operation.";
+            return;
+        }
+        if (lastError is not null)
+        {
+            headline.Text = "Action needed";
+            nextStep.Text = "Review the error below, fix it, then try the operation again. Open Logs for the full detail.";
+            return;
+        }
+        if (running && currentProxy.State == ProxyState.Managed)
+        {
+            headline.Text = "Xray is running with the Windows proxy enabled";
+            nextStep.Text = "Use Stop Xray when finished; your previous Windows proxy settings are restored first.";
+            return;
+        }
+        if (!running && currentProxy.State == ProxyState.Managed)
+        {
+            headline.Text = "Windows proxy is still enabled";
+            nextStep.Text = "Click Restore system proxy to return to your previous Windows settings.";
+            return;
+        }
+        if (currentProxy.State is ProxyState.RecoveryRequired or ProxyState.Conflict)
+        {
+            headline.Text = "Windows proxy needs attention";
+            nextStep.Text = "Open Review / resolve before starting Xray. Your previous settings are retained locally.";
+            return;
+        }
+        if (Selected is null)
+        {
+            headline.Text = "No configuration selected";
+            nextStep.Text = "Click Import configuration… to open an existing Xray JSON file, or New configuration… to create one. Nothing starts automatically.";
+            return;
+        }
+        if (running)
+        {
+            headline.Text = "Xray is running";
+            nextStep.Text = "To send Windows apps through Xray, click Enable system proxy. Otherwise use Stop Xray when finished.";
+        }
+        else if (session.State == CoreState.Missing)
+        {
+            headline.Text = "Xray core is missing";
+            nextStep.Text = "Restore xray.exe, geoip.dat and geosite.dat beside XrayDesktop.exe, then click Check core.";
+        }
+        else if (session.State == CoreState.Faulted)
+        {
+            headline.Text = "Xray core could not be checked";
+            nextStep.Text = "Click Check core and review the error in Logs. The tested core is Xray " + Bootstrap.TargetCoreVersion + ".";
+        }
+        else
+        {
+            headline.Text = "Ready to start";
+            nextStep.Text = "Click Validate configuration to test it, choose an HTTP listener if you want the system proxy, then click Start Xray.";
+        }
+        if (session.Version is { IsBaseline: false } version)
+            nextStep.Text += $" Detected Xray {version.Version}; the tested baseline is {Bootstrap.TargetCoreVersion}. Starting asks for confirmation.";
+    }
     private async void OnClosing(object? sender, FormClosingEventArgs e)
     {
         if (allowClose) return;
@@ -480,5 +629,9 @@ internal sealed partial class MainForm : Form
         catch (Exception ex) { ShowError(ex); closing = false; timer.Start(); }
         finally { busy = false; if (!allowClose) Render(); }
     }
-    private void ShowError(Exception ex) => MessageBox.Show(this, ex.Message, Bootstrap.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+    private void ShowError(Exception ex)
+    {
+        lastError = ex.Message;
+        session.Log.Add("error", ex.ToString());
+    }
 }
