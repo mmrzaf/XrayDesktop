@@ -37,7 +37,8 @@ internal static class PhaseTwoChecks
         ("IPv6 managed proxy syntax is canonical", Ipv6),
         ("WinINet x64 structure size and field alignment", SystemProxy.ValidateNativeLayout),
         ("DPAPI journal round trip refuses overwrite and corruption", EncryptedJournal),
-        ("HTTPS probe sends anonymous CONNECT only to the explicit proxy", ProxyProbe)
+        ("HTTPS probe sends anonymous CONNECT only to the explicit proxy", ProxyProbe),
+        ("HTTPS acquisition probe distinguishes timeout from user cancellation", ProxyTimeout)
     ];
 
     private static void Assert(bool condition) { if (!condition) throw new InvalidOperationException("Assertion failed."); }
@@ -224,6 +225,26 @@ internal static class PhaseTwoChecks
     {
         var settings = new SystemProxy().Read();
         settings.Validate(); // never log sensitive server, bypass or PAC values
+    }
+    private static void ProxyTimeout() => ProxyTimeoutAsync().GetAwaiter().GetResult();
+    private static async Task ProxyTimeoutAsync()
+    {
+        // The listener deliberately never responds. No public traffic can be forwarded.
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        var endpoint = Endpoint with { Port = ((IPEndPoint)listener.LocalEndpoint).Port };
+        try
+        {
+            await HttpProxyProbe.VerifyAsync(endpoint, HttpProxyProbe.TestUri, TimeSpan.FromMilliseconds(250), CancellationToken.None);
+            throw new InvalidOperationException("Expected a timeout.");
+        }
+        catch (TimeoutException) { }
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        try
+        {
+            await HttpProxyProbe.VerifyAsync(endpoint, HttpProxyProbe.TestUri, TimeSpan.FromSeconds(5), cancelled.Token);
+            throw new InvalidOperationException("Expected cancellation.");
+        }
+        catch (OperationCanceledException) when (cancelled.IsCancellationRequested) { }
     }
     private static void ProxyProbe() => ProxyProbeAsync().GetAwaiter().GetResult();
     private static async Task ProxyProbeAsync()
