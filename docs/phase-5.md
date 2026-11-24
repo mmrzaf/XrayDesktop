@@ -27,3 +27,7 @@ The SDD requires actual Windows build and runtime evidence. Prior source preview
 4. Only after acceptance, change version to `1.0.0`, repeat the same build and relevant smoke/manual checks on that exact final artifact, create `v1.0.0` and publish the verified ZIP/checksum after explicit authorization. Do not promote this untested candidate as-is.
 
 Remaining design limits: unsigned executable; no watchdog, so GUI force termination can leave the system proxy until the next launch or manual recovery; WinINet transactions are not atomic against external changes; plaintext configurations and stale snapshots require private local storage; Windows 10 support remains unverified. Optional speed test and rotating disk logs are outside this candidate. No new feature scope.
+
+## Subsequent CI evidence
+
+The first Windows run at `656422d` compiled both projects with zero warnings and errors, passed 76/77 mandatory checks and the native WinINet read-only check. The TLS fixture timed out and real-core integration reported access denied for `xray.exe`; packaging did not run. See [CI and release workflow](ci-release.md) for the targeted fixes and pending rerun. This does not satisfy stable acceptance.
