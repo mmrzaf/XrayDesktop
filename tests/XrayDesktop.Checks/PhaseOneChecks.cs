@@ -153,6 +153,16 @@ internal static class PhaseOneChecks
     {
         var executable = Environment.GetEnvironmentVariable("XRAY_TEST_CORE");
         if (string.IsNullOrWhiteSpace(executable)) { Console.WriteLine("SKIP: XRAY_TEST_CORE not supplied; real Xray acceptance pending."); return; }
+        RealCore(executable);
+    }
+    internal static void RealCore(string executable)
+    {
+        // The supplied core was already verified by CI. Run it in place, leaving
+        // its executable and assets outside the disposable configuration directory.
+        // Windows can retain an executable image/AV handle after process exit.
+        executable = Path.GetFullPath(executable);
+        if (!Path.GetFileName(executable).Equals("xray.exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(executable))
+            throw new FileNotFoundException("XRAY_TEST_CORE must point to an existing xray.exe.", executable);
         WithDirectory(root => RealCoreAsync(root, executable).GetAwaiter().GetResult());
     }
     private static async Task RealCoreAsync(string root, string executable)

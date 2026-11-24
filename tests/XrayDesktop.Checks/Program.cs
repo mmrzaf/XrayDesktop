@@ -10,6 +10,20 @@ internal static class Program
     {
         if (args.SequenceEqual(new[] { "--child-exit" })) { Console.WriteLine("test stdout"); Console.Error.WriteLine("test stderr"); return 7; }
         if (args.SequenceEqual(new[] { "--child-wait" })) { Thread.Sleep(TimeSpan.FromMinutes(2)); return 0; }
+        if (args.Length == 2 && args[0] == "--check-core")
+        {
+            try
+            {
+                PhaseOneChecks.RealCore(Path.Combine(args[1], "xray.exe"));
+                Console.WriteLine("PASS: packaged Xray integration.");
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"FAIL: packaged Xray integration: {exception}");
+                return 1;
+            }
+        }
         if (args.Length != 0) return 2;
         var checks = new (string Name, Action Run)[]
         {
