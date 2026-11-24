@@ -1,4 +1,4 @@
-Xray Desktop 0.1.1 - portable preview (acceptance pending)
+Xray Desktop 0.2.0 - portable preview (acceptance pending)
 ==========================================================
 
 Windows x64. Extract the entire archive into a writable, private folder. The
@@ -32,7 +32,10 @@ optional enable-after-Start checkbox is off by default, lasts for this GUI
 session and still asks before the test. Restore system proxy can leave Xray
 running. Stop/Restart/Close restore first; a failed restore requires explicit
 confirmation before force stop. Restart does not automatically reacquire proxy
-unless enable-after-Start is selected and the user approves again.
+unless enable-after-Start is selected and the user approves again. A profile
+with only a SOCKS inbound can still run and serve apps on that SOCKS port, but
+Windows system proxy control requires an eligible anonymous HTTP listener; the
+app explains this in step 4 instead of leaving you with a dead button.
 
 Start, Logs, Diagnostics and Settings are separate tabs. The Start tab is
 numbered: choose a configuration, optionally choose the listener to verify,

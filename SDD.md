@@ -70,7 +70,7 @@ Portable data is stored beside the app; writable folder required. If read-only, 
 One resizable main form using standard WinForms controls; minimum practical size about 700×520, DPI-aware, keyboard accessible, no custom drawing or theme framework.
 
 ```text
- Xray Desktop — 0.1.1
+ Xray Desktop — 0.2.0
  No configuration selected                         [Cancel operation]
  Next: Click Import configuration… to open an Xray JSON file…
  Core: Stopped | Version: 26.11.9 | PID: — | Uptime: —    Windows LAN proxy: Unmanaged
@@ -251,7 +251,7 @@ One GitHub Actions workflow initially; Windows hosted runner pinned to a concret
 3. Obtain the pinned core from the official GitHub release, verify the asset checksum and individual payload hashes, extract to CI temp, confirm its version, and use the same verified bytes for both integration tests and packaging. No public endpoint dependency for functional CI. Fail clearly if the asset is unavailable; do not silently skip required integration checks, download twice, or replace with latest.
 4. Publish GUI with `dotnet publish src/XrayDesktop/XrayDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o <staging>` (restore/publish properties must match; confirm actual outputs). Do not rely on cross-compilation as proof of runtime behavior.
 5. Assert the staged EXE and verified core files exist; run `--self-test` or `--version` headless paths that exit without changing proxy; fail on nonzero or timeout. Package only expected files, verify ZIP contents, payload hashes, internal manifest and the extracted GUI/core, compute SHA-256, upload artifact and build/test summaries. Test GUI behavior separately on real desktop. Never upload test logs containing secrets, private config or build caches, and never add unverified core files.
-6. Release only after manual gate: tag `v0.1.1`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
+6. Release only after manual gate: tag `v0.2.0`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
 
 ## 13. Implementation plan (ordered, gated; no time promises)
 
