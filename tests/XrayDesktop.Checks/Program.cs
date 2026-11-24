@@ -22,7 +22,7 @@ internal static class Program
             ("Headless self-test reports success", CheckSelfTest)
         };
 
-        checks = [.. checks, .. PhaseOneChecks.All, .. PhaseTwoChecks.All];
+        checks = [.. checks, .. PhaseOneChecks.All, .. PhaseTwoChecks.All, .. PhaseThreeChecks.All];
         var failures = 0;
         foreach (var check in checks)
         {
