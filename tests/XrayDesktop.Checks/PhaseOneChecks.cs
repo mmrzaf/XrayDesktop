@@ -153,6 +153,8 @@ internal static class PhaseOneChecks
         var session = new SessionController(root, Path.Combine(root, "data"));
         using var token = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         await session.CheckAsync(token.Token); Assert(session.Version?.IsBaseline == true);
+        var invalid = await session.ValidateAsync("{"u8.ToArray(), root, token.Token);
+        Assert(invalid.ExitCode != 0 && !session.HasChild);
         int httpPort, socksPort;
         using var origin = new TcpListener(IPAddress.Loopback, 0);
         origin.Start();
