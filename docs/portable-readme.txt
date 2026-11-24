@@ -1,4 +1,4 @@
-Xray Desktop 0.2.0 - portable preview (acceptance pending)
+Xray Desktop 0.2.1 - portable preview (acceptance pending)
 ==========================================================
 
 Windows x64. Extract the entire archive into a writable, private folder. The
@@ -35,7 +35,13 @@ confirmation before force stop. Restart does not automatically reacquire proxy
 unless enable-after-Start is selected and the user approves again. A profile
 with only a SOCKS inbound can still run and serve apps on that SOCKS port, but
 Windows system proxy control requires an eligible anonymous HTTP listener; the
-app explains this in step 4 instead of leaving you with a dead button.
+app explains this in step 4 instead of leaving you with a dead button. Use
+Add HTTP listener… to create a validated managed copy with a local HTTP
+listener; the original profile is not modified.
+
+Validate shows the exact Xray output on the Start tab when a configuration is
+rejected. Errors show a banner with Run Local diagnostics, Open Logs and
+Dismiss. A port already in use is called out before Start.
 
 Start, Logs, Diagnostics and Settings are separate tabs. The Start tab is
 numbered: choose a configuration, optionally choose the listener to verify,

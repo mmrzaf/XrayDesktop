@@ -70,7 +70,7 @@ Portable data is stored beside the app; writable folder required. If read-only, 
 One resizable main form using standard WinForms controls; minimum practical size about 700×520, DPI-aware, keyboard accessible, no custom drawing or theme framework.
 
 ```text
- Xray Desktop — 0.2.0
+ Xray Desktop — 0.2.1
  No configuration selected                         [Cancel operation]
  Next: Click Import configuration… to open an Xray JSON file…
  Core: Stopped | Version: 26.11.9 | PID: — | Uptime: —    Windows LAN proxy: Unmanaged
@@ -89,7 +89,7 @@ One resizable main form using standard WinForms controls; minimum practical size
      [ ] Enable proxy after Start (ask first)
 ```
 
-- Main form: a persistent header shows the current core/proxy state, the next useful action and the last error on every tab; errors are no longer only visible in Logs. The Start tab groups the workflow in order: configuration, optional listener verification, validate/start, optional Windows proxy. Disable conflicting operations during transitions; allow cancelling probes. A running profile cannot be edited in-place: edits apply to next start, with a dirty/restart indicator.
+- Main form: a persistent header shows the current core/proxy state, the next useful action and the last error on every tab; errors are no longer only visible in Logs and offer Local diagnostics. The Start tab groups the workflow in order: configuration, optional listener verification, validate/start with inline validation output, optional Windows proxy. Port conflicts are surfaced before Start. SOCKS-only profiles can be copied into a validated managed profile with a loopback HTTP listener. Disable conflicting operations during transitions; allow cancelling probes. A running profile cannot be edited in-place: edits apply to next start, with a dirty/restart indicator.
 - Editor dialog: plain multiline monospace text, paste, open, save, Save As, optional format, validation output. Strict JSON formatting may remove comments: require explicit confirmation for JSONC or refuse formatting it. Preserve encoding/content except intentional edits; unsaved changes prompt before close. Validate the actual editor snapshot, never implicitly overwrite source.
 - Diagnostics tab: Test selected, Run all, Cancel, Copy/Export report; rows with outcome, elapsed time and details. Display test URL and whether it goes directly or through a proxy. Settings: startup behavior, endpoint choice/override, probe URLs/timeouts, log persistence and tray option.
 - Tray: show window, start/stop, toggle managed proxy, exit. Close normally exits (restore then stop); minimize-to-tray is opt-in. Tray menu mirrors state; clear distinction between hide and exit.
@@ -251,7 +251,7 @@ One GitHub Actions workflow initially; Windows hosted runner pinned to a concret
 3. Obtain the pinned core from the official GitHub release, verify the asset checksum and individual payload hashes, extract to CI temp, confirm its version, and use the same verified bytes for both integration tests and packaging. No public endpoint dependency for functional CI. Fail clearly if the asset is unavailable; do not silently skip required integration checks, download twice, or replace with latest.
 4. Publish GUI with `dotnet publish src/XrayDesktop/XrayDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o <staging>` (restore/publish properties must match; confirm actual outputs). Do not rely on cross-compilation as proof of runtime behavior.
 5. Assert the staged EXE and verified core files exist; run `--self-test` or `--version` headless paths that exit without changing proxy; fail on nonzero or timeout. Package only expected files, verify ZIP contents, payload hashes, internal manifest and the extracted GUI/core, compute SHA-256, upload artifact and build/test summaries. Test GUI behavior separately on real desktop. Never upload test logs containing secrets, private config or build caches, and never add unverified core files.
-6. Release only after manual gate: tag `v0.2.0`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
+6. Release only after manual gate: tag `v0.2.1`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
 
 ## 13. Implementation plan (ordered, gated; no time promises)
 
