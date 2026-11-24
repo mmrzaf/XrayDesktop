@@ -34,10 +34,13 @@ running. Stop/Restart/Close restore first; a failed restore requires explicit
 confirmation before force stop. Restart does not automatically reacquire proxy
 unless enable-after-Start is selected and the user approves again.
 
-Connection, Logs, Diagnostics and Settings are separate tabs. The tray icon
-shows core and proxy state; right-click for Show, Start, Stop, Enable, Restore
-and Exit. Double-click to reopen. Minimize-to-tray is off by default; opt in
-under Settings and save desktop preferences. Closing the window or choosing
+Start, Logs, Diagnostics and Settings are separate tabs. The Start tab is
+numbered: choose a configuration, optionally choose the listener to verify,
+validate/start Xray, then optionally enable the Windows proxy. A status header
+on every tab says what is happening, what to do next and shows the last error.
+The tray icon shows core and proxy state; right-click for Show, Start, Stop,
+Enable, Restore and Exit. Double-click to reopen. Minimize-to-tray is off by
+default; opt in under Settings and save desktop preferences. Closing the window or choosing
 Exit still restores and stops the owned core. Tray commands reopen the window
 so confirmations remain visible. While busy, show the window and use Cancel
 operation; cancelling a network probe does not discard proxy recovery.

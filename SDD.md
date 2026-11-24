@@ -67,25 +67,29 @@ Portable data is stored beside the app; writable folder required. If read-only, 
 
 ## 4. GUI and interaction
 
-One resizable main form using standard WinForms controls; minimum practical size about 850×600, DPI-aware, keyboard accessible, no custom drawing or theme framework.
+One resizable main form using standard WinForms controls; minimum practical size about 700×520, DPI-aware, keyboard accessible, no custom drawing or theme framework.
 
 ```text
- Xray Desktop                                    [Core: 26.11.9]
- Profile [ Home configuration                 v ] [Import] [New]
- Config  [ C:\...\home.json                      ] [Edit] [Validate]
- Core: Stopped / Running / Error    PID: —        Uptime: —
- [Start] [Stop] [Restart]   [ ] Enable system proxy on start
- HTTP [127.0.0.1:port ▼]    SOCKS [127.0.0.1:port ▼] [Override]
- Windows proxy: Off / Managed / External / Recovery required
- [Enable system proxy] [Restore system proxy]
+ Xray Desktop — 0.1.1
+ No configuration selected                         [Cancel operation]
+ Next: Click Import configuration… to open an Xray JSON file…
+ Core: Stopped | Version: 26.11.9 | PID: — | Uptime: —    Windows LAN proxy: Unmanaged
+ (last error, when any) [Open Logs] [Dismiss]
  ----------------------------------------------------------------
- [ Logs ] [ Diagnostics ] [ Settings ]
- Time       Source     Level      Message
- ...
- [Copy redacted] [Save report] [Clear]               [Auto-scroll]
+ [ Start ] [ Logs ] [ Diagnostics ] [ Settings ]
+ Start tab:
+  1. Choose a configuration
+     Profile [ Home configuration v ] [Import] [New] [Edit] [Save as] [Reload] [Remove]
+  2. Choose the listener to verify (optional)
+     [ 127.0.0.1:port (http) v ] [Manual endpoint]
+  3. Validate and run Xray
+     [Check core] [Validate configuration] [Start Xray] [Stop Xray] [Restart Xray]
+  4. Route Windows apps through Xray (optional)
+     [Enable system proxy] [Restore system proxy] [Review / resolve]
+     [ ] Enable proxy after Start (ask first)
 ```
 
-- Main form: profile selection, core version/PID, independent proxy control, actionable status text. Disable conflicting operations during transitions; allow cancelling probes. A running profile cannot be edited in-place: edits apply to next start, with a dirty/restart indicator.
+- Main form: a persistent header shows the current core/proxy state, the next useful action and the last error on every tab; errors are no longer only visible in Logs. The Start tab groups the workflow in order: configuration, optional listener verification, validate/start, optional Windows proxy. Disable conflicting operations during transitions; allow cancelling probes. A running profile cannot be edited in-place: edits apply to next start, with a dirty/restart indicator.
 - Editor dialog: plain multiline monospace text, paste, open, save, Save As, optional format, validation output. Strict JSON formatting may remove comments: require explicit confirmation for JSONC or refuse formatting it. Preserve encoding/content except intentional edits; unsaved changes prompt before close. Validate the actual editor snapshot, never implicitly overwrite source.
 - Diagnostics tab: Test selected, Run all, Cancel, Copy/Export report; rows with outcome, elapsed time and details. Display test URL and whether it goes directly or through a proxy. Settings: startup behavior, endpoint choice/override, probe URLs/timeouts, log persistence and tray option.
 - Tray: show window, start/stop, toggle managed proxy, exit. Close normally exits (restore then stop); minimize-to-tray is opt-in. Tray menu mirrors state; clear distinction between hide and exit.

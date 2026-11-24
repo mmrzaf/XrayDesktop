@@ -6,7 +6,7 @@ Portable Windows x64 controller with a bundled, verified Xray-core and raw Xray 
 
 ## Users
 
-Download the portable ZIP, extract the whole archive to a private writable directory, and launch `XrayDesktop.exe`. The archive already contains the official Xray-core v26.11.9 `xray.exe`, `geoip.dat` and `geosite.dat`; no separate Xray download, installed .NET runtime, administrator elevation or development tools are required. Import an Xray JSON configuration, validate it with the bundled core, start it, then optionally enable the system proxy. Windows 11 x64 is the primary target; Windows 10 compatibility is unverified. The executable is unsigned.
+Download the portable ZIP, extract the whole archive to a private writable directory, and launch `XrayDesktop.exe`. The archive already contains the official Xray-core v26.11.9 `xray.exe`, `geoip.dat` and `geosite.dat`; no separate Xray download, installed .NET runtime, administrator elevation or development tools are required. Import an Xray JSON configuration, validate it with the bundled core, start it, then optionally enable the system proxy. The **Start** tab is numbered and a status header on every tab shows the current state, the next useful action and the last error. Windows 11 x64 is the primary target; Windows 10 compatibility is unverified. The executable is unsigned.
 
 Replacing `xray.exe` or the geodata files with another compatible build is an optional advanced operation; the application still detects the adjacent executable, checks its version and warns when it is outside the tested baseline. The [third-party notices](docs/THIRD-PARTY-NOTICES.txt) record the bundled core and geodata provenance and licenses.
 
