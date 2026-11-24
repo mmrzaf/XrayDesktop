@@ -1,0 +1,22 @@
+# .NET build output and IDE state
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+TestResults/
+artifacts/
+
+# Local Xray binaries, assets, profiles and logs
+xray.exe
+geoip.dat
+geosite.dat
+**/data/
+**/profiles/
+**/configs/
+**/logs/
+*.log
+*.local.json
+.env
+.env.*
