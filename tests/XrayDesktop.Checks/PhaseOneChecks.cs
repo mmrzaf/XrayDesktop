@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Http;
+using System.Text;
 using XrayDesktop.App;
 using XrayDesktop.Config;
 using XrayDesktop.Core;
+using XrayDesktop.Diagnostics;
 using XrayDesktop.Storage;
 using XrayDesktop.Windows;
 
@@ -150,16 +153,94 @@ internal static class PhaseOneChecks
         var session = new SessionController(root, Path.Combine(root, "data"));
         using var token = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         await session.CheckAsync(token.Token); Assert(session.Version?.IsBaseline == true);
-        int port;
-        using (var reserve = new TcpListener(IPAddress.Loopback, 0)) { reserve.Start(); port = ((IPEndPoint)reserve.LocalEndpoint).Port; }
-        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { inbounds = new[] { new { tag = "test", listen = "127.0.0.1", port, protocol = "http" } }, outbounds = new[] { new { protocol = "freedom" } } });
-        var endpoint = ConfigInspector.Inspect(bytes).Endpoints.Single();
+        int httpPort, socksPort;
+        using var origin = new TcpListener(IPAddress.Loopback, 0);
+        origin.Start();
+        using (var http = new TcpListener(IPAddress.Loopback, 0))
+        using (var socks = new TcpListener(IPAddress.Loopback, 0))
+        {
+            http.Start(); socks.Start();
+            httpPort = ((IPEndPoint)http.LocalEndpoint).Port;
+            socksPort = ((IPEndPoint)socks.LocalEndpoint).Port;
+        }
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            inbounds = new[]
+            {
+                new { tag = "http-test", listen = "127.0.0.1", port = httpPort, protocol = "http" },
+                new { tag = "socks-test", listen = "127.0.0.1", port = socksPort, protocol = "socks" }
+            },
+            outbounds = new[] { new { protocol = "freedom" } }
+        });
+        var endpoints = ConfigInspector.Inspect(bytes).Endpoints;
+        var endpoint = endpoints.Single(e => e.Protocol == "http");
         try
         {
             var result = await session.ValidateAsync(bytes, root, token.Token); Assert(result.ExitCode == 0);
-            await session.StartAsync(bytes, root, endpoint, token.Token); Assert(session.State == CoreState.Running && session.Pid is int pid && TcpListeners.IsOwned(endpoint, pid));
+            await session.StartAsync(bytes, root, endpoint, token.Token);
+            Assert(session.State == CoreState.Running && session.Pid is int pid && TcpListeners.IsOwned(endpoint, pid));
+            foreach (var proxy in endpoints)
+            {
+                Assert(TcpListeners.IsOwned(proxy, session.Pid!.Value));
+                await VerifyLoopbackTrafficAsync(origin, proxy, token.Token);
+            }
             await session.StopAsync(); Assert(session.State == CoreState.Stopped && !session.HasChild);
+            // Restart the same snapshot inputs, then simulate an unexpected owned-core exit.
+            await session.StartAsync(bytes, root, endpoint, token.Token);
+            using var process = Process.GetProcessById(session.Pid!.Value);
+            process.Kill();
+            await process.WaitForExitAsync(token.Token);
+            await session.PollAsync();
+            Assert(session.State == CoreState.Faulted && !session.HasChild && session.LastExitCode is not null);
+            await session.StartAsync(bytes, root, endpoint, token.Token);
+            Assert(session.State == CoreState.Running && session.HasChild);
+            await session.StopAsync(); Assert(!session.HasChild);
         }
         finally { if (session.HasChild) await session.StopAsync(); }
+    }
+
+    private static async Task VerifyLoopbackTrafficAsync(TcpListener origin, Inbound proxy, CancellationToken token)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
+        limit.CancelAfter(TimeSpan.FromSeconds(10));
+        var marker = Guid.NewGuid().ToString("N");
+        var server = ServeOnceAsync(origin, marker, limit.Token);
+        try
+        {
+            using var handler = NetworkProbes.CreateHandler(proxy);
+            using var client = new HttpClient(handler);
+            // Plain HTTP is intentional for this local fixture, with no remote DNS or public traffic.
+            var response = await client.GetStringAsync(new Uri($"http://127.0.0.1:{((IPEndPoint)origin.LocalEndpoint).Port}/{marker}"), limit.Token);
+            await server;
+            Assert(response == marker);
+        }
+        finally
+        {
+            limit.Cancel();
+            // Observe the server task even if the proxy request failed first.
+            try { await server; } catch (OperationCanceledException) when (limit.IsCancellationRequested) { }
+        }
+    }
+
+    private static async Task ServeOnceAsync(TcpListener listener, string marker, CancellationToken token)
+    {
+        using var connection = await listener.AcceptTcpClientAsync(token);
+        await using var stream = connection.GetStream();
+        var header = new byte[8192];
+        var length = 0;
+        while (length < header.Length)
+        {
+            var read = await stream.ReadAsync(header.AsMemory(length, 1), token);
+            if (read == 0) throw new EndOfStreamException("Loopback request ended before its headers.");
+            length += read;
+            if (length >= 4 && header[length - 4] == 13 && header[length - 3] == 10 && header[length - 2] == 13 && header[length - 1] == 10) break;
+        }
+        var request = Encoding.ASCII.GetString(header, 0, length);
+        Assert(request.StartsWith($"GET /{marker} HTTP/", StringComparison.Ordinal));
+        Assert(request.EndsWith("\r\n\r\n", StringComparison.Ordinal));
+        var body = Encoding.ASCII.GetBytes(marker);
+        var responseHeader = Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
+        await stream.WriteAsync(responseHeader, token);
+        await stream.WriteAsync(body, token);
     }
 }
