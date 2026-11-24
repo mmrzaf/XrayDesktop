@@ -71,6 +71,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
         try
         {
             snapshot = new RunSnapshot(dataDirectory, bytes, workingDirectory);
+            if (snapshot.Inspection.HasTun) throw new InvalidOperationException("TUN configurations are outside Phase 1 scope.");
             var result = await ValidateSnapshotAsync(snapshot, token).ConfigureAwait(false);
             if (result.ExitCode != 0) throw new InvalidOperationException("Xray rejected the configuration; inspect local logs.");
             var endpoints = snapshot.Inspection.Endpoints;

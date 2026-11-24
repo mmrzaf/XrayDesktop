@@ -23,8 +23,7 @@ internal static class PhaseOneChecks
         ("Missing core fails without launch", MissingCore),
         ("Windows TCP listener owner lookup", ListenerOwners),
         ("Owned child exits and drains streams", ChildExit),
-        ("Owned child is terminated on disposal", ChildStop),
-        ("Optional real Xray lifecycle", RealCore)
+        ("Owned child is terminated on disposal", ChildStop)
     ];
 
     private static void Assert(bool condition) { if (!condition) throw new InvalidOperationException("Assertion failed."); }
@@ -138,7 +137,7 @@ internal static class PhaseOneChecks
         var child = new OwnedProcess(TestChild("--child-wait"), new LogBuffer()); using var process = Process.GetProcessById(child.Id);
         await child.DisposeAsync(); Assert(process.WaitForExit(5000));
     }
-    private static void RealCore()
+    internal static void RealCore()
     {
         var executable = Environment.GetEnvironmentVariable("XRAY_TEST_CORE");
         if (string.IsNullOrWhiteSpace(executable)) { Console.WriteLine("SKIP: XRAY_TEST_CORE not supplied; real Xray acceptance pending."); return; }

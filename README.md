@@ -1,56 +1,52 @@
 # Xray Desktop
 
-A portable Windows x64 controller for an external Xray-core executable and raw Xray JSON configurations. The application is being developed in small, gated phases according to [SDD.md](SDD.md).
+Portable Windows x64 controller for an external Xray-core and raw Xray JSON configurations. Development follows [SDD.md](SDD.md).
 
-**Current status:** Phase 0 development preview (`0.1.0-preview.0`). The source foundation is present; Windows CI and visual acceptance have not yet been run. This is not a functional proxy client.
+**Status:** Phase 1 source preview (`0.1.0-preview.1`). Phase 0 and Phase 1 Windows build/runtime gates are not yet evidenced. No system proxy integration yet. See [Phase 1 acceptance](docs/phase-1.md).
 
-## Requirements
+## Users
 
-For users (after a successful Windows build): a supported Windows 11 x64 machine. No installed .NET runtime, SDK, development tools or administrator rights are required. Windows 10 support is pending separate compatibility testing. The Xray v26.11.9 core is a future integration requirement, not a Phase 0 dependency.
+After a successful Windows build, extract the portable ZIP to a private writable directory, place trusted `xray.exe` (target v26.11.9) and any required assets alongside `XrayDesktop.exe`, then open the GUI. No installed .NET SDK/runtime or elevation is intended. Windows 11 x64 is the primary target; Windows 10 compatibility is unverified. The executable is unsigned.
 
-For developers or CI: Windows x64, PowerShell 7, and the exact [.NET SDK](https://dotnet.microsoft.com/download/dotnet/10.0) specified in `global.json` (10.0.404). There are no third-party NuGet package references. Framework and runtime packs are restored from nuget.org as required.
+- Import raw JSON/JSONC as an external reference or a managed copy; create, edit, explicitly save, Save As, reload or remove references. Removing a reference never deletes its file.
+- Validate with the native Xray command, then Start, Stop or Restart. Start validates exact snapshot bytes and runs the same snapshot. Select a detected local HTTP/SOCKS endpoint or manual loopback endpoint for listener ownership verification.
+- Check core version, state, PID, listener status, raw bounded logs. Other core versions require confirmation before starting. Raw logs and local profile files may contain secrets.
+- Windows system proxy management, internet diagnostics and tray support are later phases. No automatic network probes, core downloads or telemetry.
 
-## Build and package
+The bundled example has a `freedom` outbound and is not a VPN or privacy-protecting connection. Use only trusted configurations; the GUI does not sandbox Xray. See [portable instructions](docs/portable-readme.txt).
 
-GitHub Actions runs the [Windows build](.github/workflows/build.yml) workflow on pushes to `main`, pull requests and manual dispatch. It uses the `windows-2025` runner and installs the SDK from `global.json`. Action references are pinned to full commit SHAs; CI permissions are read-only. No live Xray server, credentials or secrets are needed.
+## Developers and CI
 
-Developers can execute the same pipeline from the repository root:
+Windows x64, PowerShell 7 and pinned .NET SDK 10.0.404 (`global.json`). No third-party package references. Framework/runtime packs are restored as needed. The GitHub Actions workflow uses `windows-2025`, SHA-pinned actions and read-only permissions.
 
 ```powershell
 pwsh -NoProfile -File ./scripts/Build.ps1
 ```
 
-The script replaces only its generated `artifacts/phase0/` directory, restores and builds the solution in Release, runs the console checks, restores for single-file Windows x64 publishing, publishes and creates a portable ZIP. It checks the archive's exact contents and checksums, then launches the extracted executable with five headless argument combinations. A failed step stops the build and prevents artifact upload.
+The pipeline builds Release with warnings as errors, executes the console checks, publishes the single-file self-contained executable, verifies ZIP entries and SHA-256 checksums, runs the extracted EXE headless in a Unicode path from a different working directory, and uploads only on success.
 
-Successful output (also available as a GitHub Actions artifact):
+For an additional real-core integration check, obtain the trusted **v26.11.9 Windows x64** core yourself and set the absolute path before running the same build:
 
-```text
-artifacts/phase0/dist/
-  XrayDesktop-0.1.0-preview.0-win-x64.zip
-  XrayDesktop-0.1.0-preview.0-win-x64.zip.sha256
+```powershell
+$env:XRAY_TEST_CORE = 'C:\trusted-xray\xray.exe'
+pwsh -NoProfile -File ./scripts/Build.ps1
 ```
 
-The ZIP contains the standalone GUI, a quick-start README, a credential-free direct-only Xray example and an internal checksum manifest. It does not contain Xray itself. Extract into a writable directory and launch `XrayDesktop.exe`. The unsigned preview may trigger SmartScreen. The sample configuration does not provide a VLESS connection or privacy protection.
-
-## Repository layout
+This optional test uses a temporary direct-only configuration with a dynamically allocated loopback port; it makes no external network requests and never changes Windows proxy settings. Absence of the core is explicitly reported as skipped. A skipped test is not acceptance evidence. The synthetic child and TCP owner tests run regardless. Outputs:
 
 ```text
-src/XrayDesktop/          WinForms bootstrap and application metadata
-tests/XrayDesktop.Checks/ No-framework console checks
-scripts/                  Windows build, packaging and executable smoke checks
-examples/                 Synthetic configuration, no credentials
-docs/                     Portable README and phase acceptance notes
-.github/workflows/        Windows CI
-SDD.md                    Approved design baseline
+artifacts/phase1/dist/
+  XrayDesktop-0.1.0-preview.1-win-x64.zip
+  XrayDesktop-0.1.0-preview.1-win-x64.zip.sha256
 ```
 
-## Phase 0 behavior
+## Repository
 
-- No arguments: show the resizable, DPI-aware application shell.
-- `--version`, `--self-test`, `--help`: run headless and exit with status 0 on success.
-- Unknown or combined arguments: exit with status 2 and print usage to stderr.
-- Self-test failure: exit with status 1. A passing self-test is not evidence of Xray connectivity or system proxy behavior.
+- `src/XrayDesktop/`: WinForms, profile storage, core/session management, Windows job and TCP-owner APIs.
+- `tests/XrayDesktop.Checks/`: dependency-free console checks.
+- `scripts/`: build, packaging and published-EXE tests.
+- `examples/`: synthetic configuration only.
+- `docs/`: quick start and acceptance records.
+- `SDD.md`: original design baseline; implementation differences are recorded in phase notes.
 
-Phase 0 does not start Xray, read profiles, write settings, make network requests or change the system proxy. Controls for those features are intentionally absent until implementation. See [Phase 0 acceptance](docs/phase-0.md) for current evidence and the remaining gate.
-
-Do not commit real Xray profiles, keys, tokens, binaries, logs or user data. The sample under `examples/` is synthetic. Keep commits focused; use the same build script locally and in CI; resolve errors rather than bypass checks. No license has been selected yet, and the repository is not intended for public distribution until the owner decides on licensing.
+Never commit private configs, credentials, binaries, logs or user data. No license has been selected. Keep commits focused, and do not bypass CI failures.

@@ -1,28 +1,34 @@
-Xray Desktop - Phase 0 development preview
+Xray Desktop - Phase 1 development preview
 ==========================================
 
-Windows x64. Extract the entire archive into a writable folder and open
-XrayDesktop.exe. The application does not need a separately installed .NET
-runtime. This unsigned preview may trigger Windows SmartScreen; use only
-artifacts from the trusted repository and verify their checksums.
+Windows x64. Extract the entire archive into a writable, private folder.
+Obtain a trusted xray.exe (reference version v26.11.9) and put it next to
+XrayDesktop.exe, along with any geodata files your config requires. No .NET
+runtime or admin elevation is intended. Unsigned builds may trigger SmartScreen.
 
-This build contains the application shell only. It does not launch Xray,
-manage configurations, change proxy settings, or perform network diagnostics.
-The compatibility target is Xray-core v26.11.9. No Xray binary is included.
+Open the GUI. It checks the adjacent core, but does not auto-start it. Import
+an existing raw JSON/JSONC configuration as a reference or managed copy, or
+create one with New. Edit and explicitly save changes; Save As makes another
+profile. The working directory is the original profile directory (a Save As
+uses the new directory). Relative paths and required assets must be verified.
+Validate calls Xray, not a replacement schema. Start validates a snapshot,
+then starts that same snapshot. Stop terminates the owned job, not other Xray
+processes. Choose an explicit local inbound or a manual loopback endpoint to
+check TCP listener ownership. Listener ownership does not establish HTTP/SOCKS
+capability or remote connectivity.
 
-The examples/direct-test.json fixture is for future integration testing.
-It uses loopback HTTP/SOCKS listeners and a direct outbound: it is NOT a VPN,
-VLESS configuration or privacy-protecting connection. It has no credentials.
-The Phase 0 GUI does not load or run it.
+Phase 1 does not change Windows system proxy settings, support TUN, or perform
+public internet probes. The example direct-test.json uses a direct outbound;
+it is NOT a VPN or privacy-protecting connection. Stop/Restart/Close are local
+core controls only. No third-party credentials are needed for automated checks.
 
-SHA256SUMS.txt lists the SHA-256 checksums of the other archive files.
-The separate .zip.sha256 file covers the complete archive. Checksums detect
-corruption; they are not a code signature or proof of publisher identity.
+Configurations and snapshots are plaintext in the app data directory; keep
+this directory private. Raw logs may include secrets. Copy raw logs requires
+confirmation. Runtime snapshots are removed on normal stop; a crash can leave
+stale snapshots. After verifying no owned core is active, remove stale files
+manually. No background cleanup or telemetry is implemented.
 
-Headless options (for automated checks):
-  --version    Print the application version, then exit.
-  --self-test  Check basic Windows x64 bootstrap metadata, then exit.
-  --help       Print usage, then exit.
-
-The preview must not be considered a functional Xray client or a stable
-release. See the repository's SDD.md for the remaining implementation gates.
+Headless: --version, --self-test, --help. The self-test checks bootstrap
+metadata, not core functionality. SHA256SUMS.txt checks the archive payload;
+checksums do not prove publisher identity. See the repository for test status.
+This is a development preview, not a certified stable release.

@@ -37,7 +37,14 @@ internal static class Program
                 Console.Error.WriteLine($"FAIL: {check.Name}: {exception.Message}");
             }
         }
-        Console.WriteLine($"{checks.Length - failures}/{checks.Length} checks passed.");
+        Console.WriteLine($"{checks.Length - failures}/{checks.Length} mandatory checks passed.");
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("XRAY_TEST_CORE")))
+            Console.WriteLine("SKIP: real Xray integration (XRAY_TEST_CORE not set).");
+        else
+        {
+            try { PhaseOneChecks.RealCore(); Console.WriteLine("PASS: real Xray integration."); }
+            catch (Exception exception) { failures++; Console.Error.WriteLine($"FAIL: real Xray integration: {exception.Message}"); }
+        }
         return failures == 0 ? 0 : 1;
     }
 

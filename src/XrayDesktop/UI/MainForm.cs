@@ -48,7 +48,11 @@ internal sealed class MainForm : Form
         timer.Tick += async (_, _) =>
         {
             Render();
-            if (!busy && session.ChildExited) await RunAsync(_ => session.PollAsync(), quiet: true);
+            if (!busy && session.HasChild)
+            {
+                try { if (session.ChildExited) await RunAsync(_ => session.PollAsync(), quiet: true); }
+                catch (Exception ex) { session.Log.Add("app", $"Process poll failed: {ex.Message}"); }
+            }
         };
         FormClosing += OnClosing;
         FormClosed += (_, _) => timer.Dispose();

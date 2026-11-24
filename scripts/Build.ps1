@@ -30,7 +30,7 @@ try {
     $project = 'src/XrayDesktop/XrayDesktop.csproj'
     $testProject = 'tests/XrayDesktop.Checks/XrayDesktop.Checks.csproj'
     $version = ([xml] (Get-Content -LiteralPath $project -Raw)).Project.PropertyGroup.Version
-    $output = Join-Path $root 'artifacts/phase0'
+    $output = Join-Path $root 'artifacts/phase1'
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Recurse -Force
     }
@@ -59,13 +59,13 @@ try {
     & (Join-Path $PSScriptRoot 'New-PortablePackage.ps1') -PublishDirectory $publish -OutputDirectory $dist -ExpectedVersion $version
     if ($env:GITHUB_STEP_SUMMARY) {
         @(
-            '## Phase 0 Windows build',
+            '## Phase 1 Windows build',
             '',
             ('- SDK: ' + $sdk),
             ('- App version: ' + $version),
             '- Release solution build and console checks passed.',
             '- Portable ZIP layout, internal SHA-256 manifest and extracted executable checks passed.',
-            '- Xray integration, visual GUI testing and clean-machine acceptance remain separate gates.'
+            '- Real Xray integration is optional via XRAY_TEST_CORE; visual GUI and clean-machine acceptance remain separate gates.'
         ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
     }
 } finally {

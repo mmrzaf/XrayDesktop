@@ -7,7 +7,7 @@ internal sealed record Inbound(string Tag, string Protocol, IPAddress Address, i
 {
     public override string ToString() => $"{Protocol.ToUpperInvariant()} {Tag} — {(Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{Address}]" : Address.ToString())}:{Port}{(Authenticated ? " (auth/unknown)" : "")}";
 }
-internal sealed record Inspection(IReadOnlyList<Inbound> Endpoints, IReadOnlyList<string> Warnings);
+internal sealed record Inspection(IReadOnlyList<Inbound> Endpoints, IReadOnlyList<string> Warnings, bool HasTun = false);
 
 internal static class ConfigInspector
 {
@@ -15,6 +15,7 @@ internal static class ConfigInspector
     {
         List<Inbound> endpoints = [];
         List<string> warnings = [];
+        var hasTun = false;
         try
         {
             ReadOnlyMemory<byte> content = bytes;
@@ -29,7 +30,7 @@ internal static class ConfigInspector
             {
                 if (item.ValueKind != JsonValueKind.Object || HasDuplicates(item)) { warnings.Add("Ambiguous inbound ignored."); continue; }
                 var protocol = ReadString(item, "protocol");
-                if (protocol == "tun") { warnings.Add("TUN is not supported by this controller."); continue; }
+                if (protocol == "tun") { hasTun = true; warnings.Add("TUN is not supported by this controller."); continue; }
                 var listen = ReadString(item, "listen");
                 if (!IPAddress.TryParse(listen, out var address) || !IPAddress.IsLoopback(address) || listen is not ("127.0.0.1" or "::1"))
                 { warnings.Add("An inbound has an omitted, non-loopback or unsupported listen address; inspect exposure before starting."); continue; }
@@ -47,7 +48,7 @@ internal static class ConfigInspector
             { warnings.Add("Duplicate local endpoints omitted."); endpoints = endpoints.GroupBy(e => (e.Address, e.Port)).Where(g => g.Count() == 1).Select(g => g.Single()).ToList(); }
         }
         catch (JsonException) { warnings.Add("JSON inspection failed; Xray validation is authoritative."); }
-        return new(endpoints, warnings);
+        return new(endpoints, warnings, hasTun);
     }
 
     private static bool OptionalStringIs(JsonElement obj, string key, params string[] allowed) => !obj.TryGetProperty(key, out var value) || (value.ValueKind == JsonValueKind.String && allowed.Contains(value.GetString()));

@@ -21,7 +21,7 @@ internal sealed class XrayProcess(string baseDirectory)
             RedirectStandardOutput = true, RedirectStandardError = true
         };
         foreach (var arg in args) info.ArgumentList.Add(arg);
-        foreach (var key in info.Environment.Keys.Where(k => k.Equals("XRAY_LOCATION_CONFIG", StringComparison.OrdinalIgnoreCase) || k.Equals("XRAY_LOCATION_CONFDIR", StringComparison.OrdinalIgnoreCase) || k.Equals("xray.location.config", StringComparison.OrdinalIgnoreCase) || k.Equals("xray.location.confdir", StringComparison.OrdinalIgnoreCase) || k.Equals("xray.location.asset", StringComparison.OrdinalIgnoreCase)).ToArray()) info.Environment.Remove(key);
+        foreach (var key in info.Environment.Keys.Where(k => k.Equals("XRAY_LOCATION_CONFIG", StringComparison.OrdinalIgnoreCase) || k.Equals("XRAY_LOCATION_CONFDIR", StringComparison.OrdinalIgnoreCase) || k.Equals("xray.location.config", StringComparison.OrdinalIgnoreCase) || k.Equals("xray.location.confdir", StringComparison.OrdinalIgnoreCase) || k.Equals("xray.location.asset", StringComparison.OrdinalIgnoreCase) || k.Equals("XRAY_LOCATION_ASSET", StringComparison.OrdinalIgnoreCase)).ToArray()) info.Environment.Remove(key);
         info.Environment["XRAY_LOCATION_ASSET"] = Path.GetDirectoryName(Executable)!;
         return info;
     }
