@@ -23,14 +23,19 @@ internal sealed class ProbePreferenceStore(string dataDirectory)
 
     internal ProbePreferences Load()
     {
-        if (!File.Exists(FilePath)) return ProbePreferences.Defaults;
-        var value = JsonSerializer.Deserialize<ProbePreferences>(AtomicFile.ReadBounded(FilePath, 16 * 1024)) ?? throw new InvalidDataException("Invalid diagnostic preferences.");
+        byte[] bytes;
+        try { bytes = AtomicFile.ReadBounded(FilePath, 16 * 1024); }
+        catch (FileNotFoundException) { return ProbePreferences.Defaults; }
+        catch (DirectoryNotFoundException) { return ProbePreferences.Defaults; }
+        var value = JsonSerializer.Deserialize<ProbePreferences>(bytes) ?? throw new InvalidDataException("Invalid diagnostic preferences.");
         value.Validate(); return value;
     }
 
     internal void Save(ProbePreferences value)
     {
         value.Validate();
-        AtomicFile.Write(FilePath, JsonSerializer.SerializeToUtf8Bytes(value, new JsonSerializerOptions { WriteIndented = true }));
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, new JsonSerializerOptions { WriteIndented = true });
+        if (bytes.Length > 16 * 1024) throw new InvalidDataException("Diagnostic preferences exceed 16 KiB.");
+        AtomicFile.Write(FilePath, bytes);
     }
 }

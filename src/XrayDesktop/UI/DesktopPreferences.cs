@@ -51,8 +51,11 @@ internal sealed class DesktopPreferenceStore(string directory)
     private string FilePath => Path.Combine(directory, "desktop.json");
     internal DesktopPreferences Load()
     {
-        if (!File.Exists(FilePath)) return DesktopPreferences.Defaults;
-        var value = JsonSerializer.Deserialize<DesktopPreferences>(AtomicFile.ReadBounded(FilePath, 16 * 1024)) ?? throw new InvalidDataException("Invalid desktop preferences.");
+        byte[] bytes;
+        try { bytes = AtomicFile.ReadBounded(FilePath, 16 * 1024); }
+        catch (FileNotFoundException) { return DesktopPreferences.Defaults; }
+        catch (DirectoryNotFoundException) { return DesktopPreferences.Defaults; }
+        var value = JsonSerializer.Deserialize<DesktopPreferences>(bytes) ?? throw new InvalidDataException("Invalid desktop preferences.");
         value.Validate(); return value;
     }
     internal void Save(DesktopPreferences value)

@@ -4,6 +4,7 @@ namespace XrayDesktop.Checks;
 
 internal static class Program
 {
+    [STAThread]
     private static int Main(string[] args)
     {
         if (args.SequenceEqual(new[] { "--child-exit" })) { Console.WriteLine("test stdout"); Console.Error.WriteLine("test stderr"); return 7; }
@@ -22,7 +23,7 @@ internal static class Program
             ("Headless self-test reports success", CheckSelfTest)
         };
 
-        checks = [.. checks, .. PhaseOneChecks.All, .. PhaseTwoChecks.All, .. PhaseThreeChecks.All];
+        checks = [.. checks, .. PhaseOneChecks.All, .. PhaseTwoChecks.All, .. PhaseThreeChecks.All, .. PhaseFourChecks.All];
         var failures = 0;
         foreach (var check in checks)
         {
@@ -51,6 +52,12 @@ internal static class Program
             catch (Exception) { failures++; Console.Error.WriteLine("FAIL: native WinINet read-only check."); }
         }
         else Console.WriteLine("SKIP: native WinINet read-only check (XRAY_TEST_WININET_READ not set).");
+        if (Environment.GetEnvironmentVariable("XRAY_TEST_UI") == "1")
+        {
+            try { PhaseFourChecks.ConstructHiddenForm(); Console.WriteLine("PASS: hidden WinForms construction check."); }
+            catch (Exception exception) { failures++; Console.Error.WriteLine($"FAIL: hidden WinForms construction: {exception.Message}"); }
+        }
+        else Console.WriteLine("SKIP: hidden WinForms construction (XRAY_TEST_UI not set).");
         return failures == 0 ? 0 : 1;
     }
 
