@@ -18,6 +18,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
     private OwnedProcess? child;
     private RunSnapshot? snapshot;
     internal LogBuffer Log { get; } = new();
+    internal IReadOnlyList<string> LastValidationOutput { get; private set; } = [];
     internal CoreState State { get; private set; } = CoreState.Stopped;
     internal CoreCheck? Version { get; private set; }
     internal int? Pid => child?.Id;
@@ -87,6 +88,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
     private async Task<CommandResult> ValidateSnapshotAsync(RunSnapshot candidate, CancellationToken token)
     {
         var result = await core.ValidateAsync(candidate, token).ConfigureAwait(false);
+        LastValidationOutput = result.Output;
         foreach (var line in result.Output) Log.Add("validation", line);
         Log.Add("app", $"Validation exit {result.ExitCode}, {result.Elapsed.TotalMilliseconds:0} ms.");
         return result;

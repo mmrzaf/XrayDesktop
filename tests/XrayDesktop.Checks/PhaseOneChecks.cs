@@ -178,7 +178,7 @@ internal static class PhaseOneChecks
         Console.WriteLine("Integration: core version and malformed configuration");
         await session.CheckAsync(token.Token); Assert(session.Version?.IsBaseline == true);
         var invalid = await session.ValidateAsync("{"u8.ToArray(), root, token.Token);
-        Assert(invalid.ExitCode != 0 && !session.HasChild);
+        Assert(invalid.ExitCode != 0 && !session.HasChild && session.LastValidationOutput.Count > 0);
         int httpPort, socksPort;
         using var origin = new TcpListener(IPAddress.Loopback, 0);
         origin.Start();
