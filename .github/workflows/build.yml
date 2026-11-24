@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      hidden_ui_check:
+        description: Construct and dispose an invisible WinForms window (no proxy mutation)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,13 +41,15 @@ jobs:
           global-json-file: global.json
 
       - name: Build, check and package
+        env:
+          XRAY_TEST_UI: ${{ inputs.hidden_ui_check && '1' || '0' }}
         run: ./scripts/Build.ps1
 
       - name: Upload verified portable package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: XrayDesktop-win-x64-${{ github.sha }}
-          path: artifacts/phase3/dist/*
+          path: artifacts/phase4/dist/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
