@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using XrayDesktop.Config;
 using XrayDesktop.Diagnostics;
@@ -19,6 +22,7 @@ internal static class PhaseThreeChecks
         ("Anonymous loopback endpoint validation", EndpointSafety),
         ("IP response requires a plain address", IpResponse),
         ("Report reconstructs only allowed metadata", Report),
+        ("Probe preferences preserve invalid files and never persist consent", Preferences),
         ("Endpoint selection avoids ambiguous and authenticated candidates", Choose),
         ("Direct consent gates remote and internet probes", () => NoConsent().GetAwaiter().GetResult()),
         ("Cancelled suite performs no probes", () => Cancelled().GetAwaiter().GetResult()),
@@ -27,6 +31,8 @@ internal static class PhaseThreeChecks
         ("HTTP CONNECT rejection never falls back to origin", () => RejectHttp().GetAwaiter().GetResult()),
         ("SOCKS5 rejection never falls back to origin", () => RejectSocks().GetAwaiter().GetResult()),
         ("HTTPS cancellation interrupts a stalled proxy", () => CancelNetwork().GetAwaiter().GetResult()),
+        ("Unreachable proxy never falls back to origin", () => RefusedProxy().GetAwaiter().GetResult()),
+        ("Direct HTTPS reaches origin and rejects untrusted TLS", () => RejectUntrustedTls().GetAwaiter().GetResult()),
         ("Diagnostic errors classify without leaking exception text", Errors)
     ];
 
@@ -101,11 +107,36 @@ internal static class PhaseThreeChecks
     {
         const string secret = "secret-uuid https://user:pw@example.test C:\\private 192.0.2.1";
         var rows = new[] { new DiagnosticResult("D12a", ProbePath.Direct, Outcome.Pass, ResultCode.Ok, 12, DateTimeOffset.UtcNow, secret),
+            new DiagnosticResult("D01", ProbePath.Local, Outcome.Pass, ResultCode.Ok, 1, DateTimeOffset.UtcNow, secret, "26.11.9"),
             new DiagnosticResult(secret, ProbePath.Local, Outcome.Fail, ResultCode.Error, 0, DateTimeOffset.UtcNow, secret) };
         var text = DiagnosticReport.Create(rows);
         Assert(!text.Contains("secret", StringComparison.Ordinal) && !text.Contains("example.test", StringComparison.Ordinal) && !text.Contains("192.0.2.1", StringComparison.Ordinal));
         using var doc = System.Text.Json.JsonDocument.Parse(text);
-        Assert(doc.RootElement.GetProperty("results").GetArrayLength() == 1 && doc.RootElement.GetProperty("results")[0].GetProperty("elapsedMs").GetInt64() == 12);
+        Assert(doc.RootElement.GetProperty("results").GetArrayLength() == 2 && doc.RootElement.GetProperty("results")[0].GetProperty("elapsedMs").GetInt64() == 12);
+        Assert(doc.RootElement.GetProperty("detectedCore").GetString() == "26.11.9");
+        Assert(!DiagnosticReport.Create([rows[1] with { DetectedCoreVersion = secret }]).Contains("secret", StringComparison.Ordinal));
+    }
+    private static void Preferences()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        try
+        {
+            var store = new ProbePreferenceStore(path);
+            Assert(store.Load() == ProbePreferences.Defaults);
+            var value = ProbePreferences.Defaults with { Https = "https://example.test/", TimeoutSeconds = 5 };
+            store.Save(value); Assert(store.Load() == value);
+            var file = Path.Combine(path, "diagnostics.json");
+            var original = File.ReadAllText(file);
+            Throws<InvalidDataException>(() => store.Save(value with { TimeoutSeconds = 16 }));
+            Assert(File.ReadAllText(file) == original);
+            using var doc = System.Text.Json.JsonDocument.Parse(original);
+            Assert(doc.RootElement.EnumerateObject().Count() == 4);
+            File.WriteAllText(file, "invalid");
+            Throws<System.Text.Json.JsonException>(() => store.Load());
+            Assert(File.ReadAllText(file) == "invalid");
+        }
+        finally { Directory.Delete(path, true); }
     }
     private static void Choose()
     {
@@ -113,6 +144,7 @@ internal static class PhaseThreeChecks
         Assert(DiagnosticRunner.Choose(context, "http") is null);
         Assert(DiagnosticRunner.Choose(context with { Selected = b }, "http") == b);
         Assert(DiagnosticRunner.Choose(context with { Endpoints = [a with { Authenticated = true }] }, "http") is null);
+        Assert(DiagnosticRunner.Choose(context with { Selected = a with { Authenticated = true }, Endpoints = [b] }, "http") is null);
     }
     private static async Task NoConsent()
     {
@@ -209,6 +241,46 @@ internal static class PhaseThreeChecks
             await timeout.CancelAsync();
             try { await request; } catch (OperationCanceledException) { return; }
             throw new InvalidOperationException("Cancellation not observed.");
+        }
+        finally { await timeout.CancelAsync(); await Observe(request); }
+    }
+    private static async Task RefusedProxy()
+    {
+        using var origin = new TcpListener(IPAddress.Loopback, 0); origin.Start();
+        // Reserve an endpoint without listening, so another process cannot bind it.
+        using var closed = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        closed.ExclusiveAddressUse = true; closed.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var endpoint = Endpoint(((IPEndPoint)closed.LocalEndPoint!).Port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await ExpectHttpFailure(NetworkProbes.HttpsAsync(new($"https://127.0.0.1:{Port(origin)}/"), endpoint, timeout.Token));
+        Assert(!origin.Pending());
+    }
+    private static async Task RejectUntrustedTls()
+    {
+        using var origin = new TcpListener(IPAddress.Loopback, 0); origin.Start();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var rsa = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest("CN=local-fixture", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var names = new SubjectAlternativeNameBuilder(); names.AddIpAddress(IPAddress.Loopback);
+        certificateRequest.CertificateExtensions.Add(names.Build());
+        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var request = NetworkProbes.HttpsAsync(new($"https://127.0.0.1:{Port(origin)}/"), null, timeout.Token);
+        try
+        {
+            using var client = await origin.AcceptTcpClientAsync(timeout.Token);
+            using var ssl = new SslStream(client.GetStream());
+            var handshake = ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, timeout.Token);
+            try
+            {
+                try { await request; }
+                catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.SecureConnectionError) { return; }
+                throw new InvalidOperationException("Expected untrusted certificate rejection.");
+            }
+            finally
+            {
+                await timeout.CancelAsync();
+                try { await handshake; } catch (Exception) { /* The peer intentionally rejects the certificate. */ }
+            }
         }
         finally { await timeout.CancelAsync(); await Observe(request); }
     }

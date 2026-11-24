@@ -8,7 +8,7 @@ namespace XrayDesktop.Diagnostics;
 
 internal sealed record RemoteTarget(string Host, int Port)
 {
-    public override string ToString() => $"{Host}:{Port}";
+    public override string ToString() => $"{(Host.Contains(':') ? $"[{Host}]" : Host)}:{Port}";
 
     internal static RemoteTarget Parse(string host, int port)
     {

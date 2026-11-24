@@ -72,7 +72,7 @@ internal sealed class DiagnosticsPanel : UserControl
     {
         var target = !direct.Checked || group is not (DiagnosticScope.All or DiagnosticScope.Remote) || string.IsNullOrWhiteSpace(host.Text)
             ? null : RemoteTarget.Parse(host.Text, (int)port.Value);
-        var useHttps = group is DiagnosticScope.All or DiagnosticScope.Http or DiagnosticScope.Socks5 || (group == DiagnosticScope.Direct && direct.Checked);
+        var useHttps = (group is DiagnosticScope.All or DiagnosticScope.Http or DiagnosticScope.Socks5) || (group == DiagnosticScope.Direct && direct.Checked);
         var useIp = publicIp.Checked && (group is DiagnosticScope.All or DiagnosticScope.PublicIp);
         return new(useHttps ? HttpsDestination : new Uri(ProbePreferences.Defaults.Https),
             useIp ? ProbeOptions.ParseHttps(ip.Text) : new Uri(ProbePreferences.Defaults.IpService),

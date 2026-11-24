@@ -238,6 +238,7 @@ internal sealed class MainForm : Form
         if (session.Version is { IsBaseline: false } version && MessageBox.Show(this, $"Xray {version.Version} is outside the {Bootstrap.TargetCoreVersion} baseline. Continue?", "Compatibility", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
         var inspection = await Task.Run(() => ConfigInspector.Inspect(bytes), token);
+        diagnostics.SetTargets(await Task.Run(() => RemoteDiscovery.Discover(bytes), token));
         if (inspection.Warnings.Count > 0 && MessageBox.Show(this, string.Join("\n", inspection.Warnings.Take(10)) + "\n\nStart this trusted configuration anyway?", "Configuration warnings", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         await Task.Run(() => session.StartAsync(bytes, profile.WorkingDirectory, selected, token), token);
         if (enableOnStart.Checked && session.CanProbeHttp) await EnableProxyAsync(token);
