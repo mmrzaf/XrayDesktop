@@ -41,6 +41,7 @@ internal sealed partial class MainForm : Form
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
     private readonly TabPage logTab = new("Logs");
     private readonly TabPage diagnosticTab = new("Diagnostics");
+    private readonly TabPage settingsTab = new("Settings");
     private readonly ToolTip tips = new() { AutoPopDelay = 15000, InitialDelay = 400, ReshowDelay = 100, ShowAlways = true };
     private string? lastError;
     private IPEndPoint[] tcpListeners = [];
@@ -136,7 +137,6 @@ internal sealed partial class MainForm : Form
         ]);
         logBar.Dock = DockStyle.Bottom; logTab.Controls.Add(logs); logTab.Controls.Add(logBar);
         diagnosticTab.Controls.Add(diagnostics);
-        var settingsTab = new TabPage("Settings");
         Add(settingsBar, "Save desktop preferences", SaveDesktopAsync, "Save desktop preferences");
         Add(settingsBar, "Reset preferences", ResetDesktopAsync, "Reset preferences");
         Add(settingsBar, "Clear profile list", ClearProfilesAsync, "Clear profile list");
