@@ -1,0 +1,80 @@
+Xray Desktop third-party notices
+================================
+
+This portable release bundles the unmodified official Xray-core Windows x64
+distribution and its geodata files. Xray Desktop and Xray-core remain separate
+executables. Xray Desktop does not download, update or embed the core.
+
+Xray-core v26.11.9
+------------------
+Files:        xray.exe
+License:      Mozilla Public License 2.0 (MPL-2.0)
+Copyright:    Project X and XTLS contributors
+Source:       https://github.com/XTLS/Xray-core/tree/v26.11.9
+License text: licenses/Xray-core-LICENSE.txt
+
+xray.exe is copied byte-for-byte from the official release asset
+Xray-windows-64.zip for v26.11.9:
+
+  https://github.com/XTLS/Xray-core/releases/tag/v26.11.9
+  archive SHA-256: 1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d
+  xray.exe SHA-256: 1ca7a2cf61ba2c5d20b21a80d405b57933939751081cb289f07bd8ddf7cc3185
+
+Corresponding source code for the exact bundled version is available from the
+v26.11.9 tag above. MPL-2.0 source-form obligations for xray.exe are satisfied
+by that tagged source release.
+
+The official archive also contains wintun.dll for TUN mode. It is not bundled
+here because Xray Desktop does not support or enable TUN.
+
+GeoIP and GeoSite data
+----------------------
+Files:        geoip.dat
+              geosite.dat
+License:      GNU General Public License version 3 (GPL-3.0)
+Copyright:    XTLS and Xray-rules-dat contributors; upstream data authors
+Source:       https://github.com/XTLS/Xray-rules-dat
+License text: licenses/Xray-rules-dat-LICENSE.txt
+
+Xray's v26.11.9 release automation fetches these files from the release branch
+of XTLS/Xray-rules-dat. The bundled bytes are:
+
+  geoip.dat SHA-256:   283119b5c7679d3cc9a750e1b6da693ecfd42e5d5036b57f0c2d0505f76e36f4
+  geosite.dat SHA-256: daaae9760ab5e687845817967257a6e9883d42ac9c09f4b774a32bd5cb39b4d7
+
+Xray-rules-dat rebuilds geodata daily, so the repository does not tag these
+files. To obtain the corresponding source data, use the Xray-rules-dat
+repository and release history, and verify the hashes above:
+
+  https://github.com/XTLS/Xray-rules-dat/tree/release/geoip
+  https://github.com/XTLS/Xray-rules-dat/tree/release/geosite
+  https://github.com/XTLS/Xray-rules-dat/releases
+
+This data is a compilation that also incorporates upstream datasets. Its
+build documentation identifies the sources per category:
+
+  https://github.com/XTLS/Xray-rules-dat/blob/geoip/README.md
+  https://github.com/XTLS/Xray-rules-dat/blob/geosite/README.md
+
+Bundled geodata notices:
+
+- GeoIP Lite is based on IPinfo Lite, Copyright IPinfo, licensed under
+  Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+  https://ipinfo.io/
+  License text: licenses/IPinfo-Lite-CC-BY-SA-4.0.txt
+
+- GeoSite uses the domain classification data of v2fly/domain-list-community,
+  Copyright (c) 2018-2019 V2Ray, licensed under the MIT License.
+  https://github.com/v2fly/domain-list-community
+  License text: licenses/domain-list-community-MIT.txt
+
+The geodata files are redistributed under GPL-3.0, and the incorporated
+IPinfo Lite data remains subject to CC BY-SA 4.0. These licenses apply to the
+data files, not to Xray Desktop's source code.
+
+No warranty
+-----------
+The bundled components are provided "as is", without warranty of any kind, to
+the extent permitted by their respective licenses. Xray Desktop is an
+independent controller and is not affiliated with or endorsed by Project X,
+XTLS, IPinfo or the V2Fly project.

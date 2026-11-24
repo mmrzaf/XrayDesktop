@@ -8,7 +8,7 @@
 
 ## 1. Purpose and principles
 
-A small, portable desktop controller for an existing Xray client JSON configuration. The user supplies the official Windows x64 `xray.exe`, selects or pastes a complete configuration, starts the core, optionally enables the Windows user proxy, and can diagnose failures without a terminal or development tools.
+A small, portable desktop controller for an existing Xray client JSON configuration. The release bundles the official Windows x64 `xray.exe` and its geodata; the user selects or pastes a complete configuration, starts the core, optionally enables the Windows user proxy, and can diagnose failures without a terminal or development tools.
 
 - Xray owns protocols, transport, routing, DNS and config semantics. The GUI does not implement VLESS or recreate the core schema.
 - Keep the user's config intact unless they explicitly edit and save it; never silently inject inbounds or rewrite routing.
@@ -20,7 +20,7 @@ A small, portable desktop controller for an existing Xray client JSON configurat
 
 | ID | Requirement | Priority |
 |---|---|---|
-| F01 | Detect adjacent xray.exe; retrieve version and test availability | Must |
+| F01 | Detect the bundled adjacent xray.exe; retrieve version and test availability | Must |
 | F02 | Import/open/paste/edit/format/save raw JSON or JSONC; multiple profiles | Must |
 | F03 | Validate with Xray; start, stop and restart owned core | Must |
 | F04 | Discover local HTTP/SOCKS proxy inbounds; select or override endpoint | Must |
@@ -39,18 +39,21 @@ Out of scope: TUN, WFP, VPN/driver, kill switch, WinHTTP machine proxy, remote m
 - Windows 11 x64 is the primary test platform. Windows 10 x64 is a compatibility target only for editions/builds supported by .NET 10; verify on a representative supported Windows 10 system before claiming support. No ARM64-native or x86 builds in v1.
 - Build `net10.0-windows`, WinForms, self-contained `win-x64`, single-file publish; no third-party runtime packages. No trimming, Native AOT or ReadyToRun initially. Include native runtime libraries for self-extraction; Windows may use its temporary extraction directory. No separate .NET installation.
 - Reference core is v26.11.9. Warn on other recognized versions, allow explicit use if validation works; unsupported versions are not certified. Detect version using the executable, not filename. Never claim compatibility simply because version parsing succeeded.
-- The application never downloads/replaces the core. User obtains it and any required assets from trusted sources. Missing geo files are warnings until a config requires them; then surface Xray's actual validation error.
-- The portable ZIP contains the GUI executable, README/quick start, example direct-only configuration, and SHA-256 manifest (no Xray binary, credentials, or real server configuration). Unsigned builds may trigger Windows SmartScreen; signing is not included in v1.
+- The release bundles the officially published, checksum-verified Xray-core v26.11.9 Windows x64 executable with its GeoIP and GeoSite data. The application never downloads, updates or replaces the core automatically. Manual replacement of the adjacent executable or geodata remains possible; unsupported files are not certified. Missing files surface a clear error or Xray's actual validation error.
+- The portable ZIP contains the GUI executable, the unmodified Xray executable and geodata, README/quick start, example direct-only configuration, third-party notices and licenses, and a SHA-256 manifest, with no credentials or real server configuration. Unsigned builds may trigger Windows SmartScreen; signing is not included in v1.
 
-Expected folder after user setup:
+Expected folder after extraction:
 
 ```text
 XrayDesktop/
   XrayDesktop.exe
-  xray.exe            # supplied by user
-  geoip.dat           # if required
-  geosite.dat         # if required
+  xray.exe                        # bundled official v26.11.9
+  geoip.dat                       # bundled
+  geosite.dat                     # bundled
   README.txt
+  THIRD-PARTY-NOTICES.txt
+  SHA256SUMS.txt
+  licenses/
   examples/
     direct-test.json  # no remote credentials
   data/               # created on demand
@@ -241,10 +244,10 @@ One GitHub Actions workflow initially; Windows hosted runner pinned to a concret
 
 1. Checkout; set up SDK; print `dotnet --info`; restore solution for the declared runtime/target; use lock files/locked mode after initial lock generation if needed. No third-party package restore beyond SDK/runtime packs.
 2. Build Release with no restore; nullable and analyzers enabled; treat warnings as errors for owned code after baseline established. Run the console test harness with explicit project and nonzero failure propagation.
-3. Obtain pinned core from official GitHub release for integration tests only, verify release asset checksum using pinned trusted digest/checksum file, extract to CI temp. Confirm version and run fixture tests. No public endpoint dependency for functional CI. Fail clearly if official asset unavailable; do not silently skip required integration checks or replace with latest.
+3. Obtain the pinned core from the official GitHub release, verify the asset checksum and individual payload hashes, extract to CI temp, confirm its version, and use the same verified bytes for both integration tests and packaging. No public endpoint dependency for functional CI. Fail clearly if the asset is unavailable; do not silently skip required integration checks, download twice, or replace with latest.
 4. Publish GUI with `dotnet publish src/XrayDesktop/XrayDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o <staging>` (restore/publish properties must match; confirm actual outputs). Do not rely on cross-compilation as proof of runtime behavior.
-5. Assert staged EXE exists; run `--self-test` or `--version` headless path that exits without changing proxy; fail on nonzero or timeout. Package only expected files, verify ZIP contents, compute SHA-256, upload artifact and build/test summaries. Test GUI behavior separately on real desktop. Never upload CI core, test logs containing secrets, private config, or build caches.
-6. Release only after manual gate: tag `v0.1.0`, attach verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
+5. Assert the staged EXE and verified core files exist; run `--self-test` or `--version` headless paths that exit without changing proxy; fail on nonzero or timeout. Package only expected files, verify ZIP contents, payload hashes, internal manifest and the extracted GUI/core, compute SHA-256, upload artifact and build/test summaries. Test GUI behavior separately on real desktop. Never upload test logs containing secrets, private config or build caches, and never add unverified core files.
+6. Release only after manual gate: tag `v0.1.1`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
 
 ## 13. Implementation plan (ordered, gated; no time promises)
 

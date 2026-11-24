@@ -8,18 +8,18 @@ All rows are **NOT RUN** until actual evidence is entered. Source inspection, a 
 - CI run URL / result:
 - Portable ZIP SHA-256:
 - Windows edition, build, architecture and user privilege:
-- Xray version and binary source:
+- Xray version and binary source (bundled archive SHA-256):
 - Test date / tester:
 - Disposable VM snapshot or isolated account confirmed:
 - Original proxy settings recorded privately (manual, bypass, PAC, autodetect):
 
 ## Before any native mutation
 
-Use a disposable Windows VM or isolated account with a known, recoverable network configuration, no work/corporate policy, and access to Windows Settings > Network & Internet > Proxy even when internet is unavailable. Take a VM snapshot if possible. Copy the candidate and trusted Xray v26.11.9 into a private writable directory; keep a second portable copy for recovery. Use the synthetic direct configuration first; it does not protect privacy. Do not use a real corporate proxy for destructive tests. Never kill unrelated Xray instances. For unexpected exit tests, identify the owned PID in the GUI and verify it again in Task Manager before ending it. Do not post raw settings or logs in issues. Stop testing and restore the recorded settings if any unexpected mutation occurs.
+Use a disposable Windows VM or isolated account with a known, recoverable network configuration, no work/corporate policy, and access to Windows Settings > Network & Internet > Proxy even when internet is unavailable. Take a VM snapshot if possible. Extract the candidate archive, which already contains Xray v26.11.9 and its geodata, into a private writable directory; keep a second portable copy for recovery. Use the synthetic direct configuration first; it does not protect privacy. Do not use a real corporate proxy for destructive tests. Never kill unrelated Xray instances. For unexpected exit tests, identify the owned PID in the GUI and verify it again in Task Manager before ending it. Do not post raw settings or logs in issues. Stop testing and restore the recorded settings if any unexpected mutation occurs.
 
 | SDD ID | Procedure and required evidence | Result |
 |---|---|---|
-| A01 | Launch without core, then with a non-executable test file named xray.exe in the disposable copy. GUI opens, errors visible, proxy unchanged; exercise version timeout in controlled fixture. | NOT RUN |
+| A01 | Launch with the bundled xray.exe temporarily renamed or replaced by a non-executable file in the disposable copy. GUI opens, errors visible, proxy unchanged; exercise version timeout in controlled fixture. | NOT RUN |
 | A02 | Import malformed JSON and valid syntax rejected by Xray; separately test missing required geodata. Validate/Start fail, original file bytes unchanged, proxy untouched. | NOT RUN |
 | A03 | Edit a copy containing unknown fields, Unicode, comments, relative paths and spaces. Cancel preserves bytes; explicit Save/Save As and reload preserve intended fields; relative paths resolve. | NOT RUN |
 | A04 | Use custom HTTP and SOCKS ports, manual endpoint and loopback IPv6; reject unsafe or authenticated auto selections; verify actual capability. | NOT RUN |
@@ -32,7 +32,7 @@ Use a disposable Windows VM or isolated account with a known, recoverable networ
 | A11 | While managed, end only GUI process. Verify owned Xray termination; Windows may retain proxy. Reopen same-user second copy; verify exact recovery even without adjacent core. | NOT RUN |
 | A12 | Review real loopback integration and no-fallback fixture results; in GUI test valid HTTP/SOCKS, unreachable proxy, TLS error, timeout, cancel and explicit direct consent. | NOT RUN |
 | A13 | Run export isolation fixtures, preview report; ensure no UUID, token, address, IP, URL, raw error or private path is exported. Raw log export must prompt. | NOT RUN |
-| A14 | On clean non-admin Windows 11 x64 with no separately installed .NET runtime/SDK, extract candidate, launch from Unicode/spaced path with adjacent core/assets, run headless and GUI checks. | NOT RUN |
+| A14 | On clean non-admin Windows 11 x64 with no separately installed .NET runtime/SDK, extract the release candidate from a Unicode/spaced path, verify the bundled xray.exe/geodata against SHA256SUMS.txt, and run headless and GUI checks. | NOT RUN |
 | A15 | Import a private trusted VLESS config locally. Validate, start, test explicit HTTPS and browser through system proxy, then restore and verify original settings. Do not upload credentials. | NOT RUN |
 | A16 | Test keyboard navigation, 100/150/200% DPI, resized and multi-monitor windows, tray show/minimize/exit, validation/log flooding and cancellation responsiveness. | NOT RUN |
 | A17 | Repeat representative clean-machine and proxy restoration checks on a supported Windows 10 edition before claiming compatibility; otherwise explicitly mark Windows 10 unsupported/unverified. | NOT RUN |

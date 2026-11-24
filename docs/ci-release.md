@@ -21,7 +21,7 @@ Both fixes need a Windows CI rerun. Full exception stacks from synthetic tests a
 | Push `v*` tag | Yes, tag/version must match | Yes | Only after both jobs succeed |
 | Other branch push | No | No | No |
 
-`Directory.Build.props` is the single application/test version source. Tag format is `v<major>.<minor>.<patch>` or `v<major>.<minor>.<patch>-<prerelease>` with no build metadata. The checked-out project version must match the tag exactly. Do not move or reuse published release tags. Protect version tags with repository rulesets where possible.
+`Directory.Build.props` is the single application/test version source. `scripts/XrayDistribution.psm1` is the single source for the pinned Xray version, release asset, archive SHA-256 and packaged payload hashes. The build job downloads and verifies that pinned distribution once, then reuses the same bytes for integration checks and packaging; it never resolves a floating `latest` release. Packaging verifies the external archive checksum, the internal manifest, byte identity of the core and geodata, the extracted core version, the extracted GUI and a real-core integration run. Tag format is `v<major>.<minor>.<patch>` or `v<major>.<minor>.<patch>-<prerelease>` with no build metadata. The checked-out project version must match the tag exactly. Do not move or reuse published release tags. Protect version tags with repository rulesets where possible.
 
 ## Publish a candidate
 
@@ -30,16 +30,16 @@ From an up-to-date `main` with both CI jobs passing, using Git Bash or any Git t
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a v0.1.0 -m "Release 0.1.0"
-git push origin v0.1.0
+git tag -a v0.1.1 -m "Release 0.1.1"
+git push origin v0.1.1
 ```
 
 The tag runs the full Windows pipeline again. Publication downloads the actual tested artifact, verifies its SHA-256 manifest again, resolves the exact tag ref (including annotated tags) to the tested commit, refuses existing releases, then creates a GitHub Release with generated notes and these two files:
 
-- `XrayDesktop-0.1.0-win-x64.zip`
-- `XrayDesktop-0.1.0-win-x64.zip.sha256`
+- `XrayDesktop-0.1.1-win-x64.zip`
+- `XrayDesktop-0.1.1-win-x64.zip.sha256`
 
-Tags with a prerelease suffix are marked as prereleases and not latest; `v0.1.0` has no suffix, so it publishes as a regular release. A stable release still requires first passing the manual acceptance checklist. Publication of a stable tag is an explicit maintainer approval; CI cannot verify interactive/manual checks on its own. No Xray binary or private configuration is published. No PAT is required: the publication job uses the repository's `GITHUB_TOKEN` with `contents: write`, subject to repository/organization rules. The other jobs have read-only contents permissions. If a release already exists, review it rather than overwriting its assets or moving the tag.
+The ZIP contains the GUI, the verified Xray-core v26.11.9 executable, its GeoIP and GeoSite data, README, third-party notices, license texts, example configuration and the internal SHA-256 manifest. Tags with a prerelease suffix are marked as prereleases and not latest; `v0.1.1` has no suffix, so it publishes as a regular release. A stable release still requires first passing the manual acceptance checklist. Publication of a stable tag is an explicit maintainer approval; CI cannot verify interactive/manual checks on its own. The package contains only the pinned public Xray distribution and the application; private configurations, test data and logs are never published. No PAT is required: the publication job uses the repository's `GITHUB_TOKEN` with `contents: write`, subject to repository/organization rules. The other jobs have read-only contents permissions. If a release already exists, review it rather than overwriting its assets or moving the tag.
 
 ## Release guard checks
 
