@@ -51,7 +51,7 @@ internal static class ConfigInspector
         return new(endpoints, warnings, hasTun);
     }
 
-    private static bool OptionalStringIs(JsonElement obj, string key, params string[] allowed) => !obj.TryGetProperty(key, out var value) || (value.ValueKind == JsonValueKind.String && allowed.Contains(value.GetString()));
+    private static bool OptionalStringIs(JsonElement obj, string key, params string[] allowed) => !obj.TryGetProperty(key, out var value) || (value.ValueKind == JsonValueKind.String && value.GetString() is string name && allowed.Contains(name));
     private static bool HasDuplicates(JsonElement obj) => obj.EnumerateObject().GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1);
     private static string? ReadString(JsonElement obj, string key) => obj.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     internal static bool TryPort(JsonElement value, out int port)

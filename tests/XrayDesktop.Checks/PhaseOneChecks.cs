@@ -135,6 +135,7 @@ internal static class PhaseOneChecks
     private static async Task ChildStopAsync()
     {
         var child = new OwnedProcess(TestChild("--child-wait"), new LogBuffer()); using var process = Process.GetProcessById(child.Id);
+        _ = process.SafeHandle; // Retain a handle before the job terminates its child.
         await child.DisposeAsync(); Assert(process.WaitForExit(5000));
     }
     internal static void RealCore()

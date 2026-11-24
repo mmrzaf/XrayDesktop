@@ -22,6 +22,7 @@ internal sealed class MainForm : Form
     private CancellationTokenSource? operation;
     private bool busy, closing, allowClose, updating, settingsUnreadable;
     private long logId;
+    private int displayedLines;
     private Profile? Selected => profiles.SelectedItem as Profile;
 
     internal MainForm()
@@ -39,7 +40,7 @@ internal sealed class MainForm : Form
         Add(coreBar, "Check core", CheckAsync); Add(coreBar, "Validate", ValidateAsync); Add(coreBar, "Start", StartAsync); Add(coreBar, "Stop", _ => session.StopAsync()); Add(coreBar, "Restart", async token => { await session.StopAsync(); await StartAsync(token); });
         var commands = Bar(); commands.Controls.Add(coreBar); commands.Controls.Add(cancel);
         cancel.Click += (_, _) => operation?.Cancel();
-        Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); return Task.CompletedTask; }, gated: false);
+        Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; }, gated: false);
         Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; }, gated: false);
         content.Controls.Add(status, 0, 0); content.Controls.Add(profileBar, 0, 1); content.Controls.Add(details, 0, 2); content.Controls.Add(endpointBar, 0, 3); content.Controls.Add(warnings, 0, 4); content.Controls.Add(commands, 0, 5); content.Controls.Add(logs, 0, 6); content.Controls.Add(logBar, 0, 7);
         Controls.Add(content);
@@ -210,15 +211,24 @@ internal sealed class MainForm : Form
     {
         var running = !busy && session.HasChild;
         if (busy) status.Text = "Operation in progress… | Windows proxy: not managed | Connectivity: not tested";
-        else status.Text = $"Core: {session.State} | Version: {session.Version?.Version ?? "unknown"} | PID: {session.Pid?.ToString() ?? "—"} | {session.Readiness}\nWindows proxy: not managed in Phase 1. Connectivity: not tested.";
+        else
+        {
+            var uptime = session.Started is { } started ? (DateTimeOffset.Now - started).ToString(@"d\.hh\:mm\:ss") : "—";
+            status.Text = $"Core: {session.State} | Version: {session.Version?.Version ?? "unknown"} | PID: {session.Pid?.ToString() ?? "—"} | Uptime: {uptime}\n{session.Readiness} | Last exit: {session.LastExitCode?.ToString() ?? "—"} | Windows proxy: unmanaged | Connectivity: not tested";
+        }
         profileBar.Enabled = !busy && !running && !closing; endpoints.Enabled = !busy && !running && !closing; manual.Enabled = endpoints.Enabled && Selected is not null;
         foreach (Control control in coreBar.Controls) control.Enabled = !busy && !closing && (control.Name switch { "Stop" or "Restart" => running, "Check core" => !running, _ => !running && Selected is not null });
         cancel.Enabled = busy && !closing;
         var batch = session.Log.ReadAfter(logId); logId = batch.Id;
         if (batch.Lines.Length > 0)
         {
-            if (logs.TextLength + batch.Lines.Sum(l => l.Length + 2) > 2 * 1024 * 1024) { logs.Text = string.Join(Environment.NewLine, session.Log.ReadAfter(0).Lines); }
-            else logs.AppendText(string.Join(Environment.NewLine, batch.Lines) + Environment.NewLine);
+            if (displayedLines + batch.Lines.Length > 5000 || logs.TextLength + batch.Lines.Sum(l => l.Length + 2) > 2 * 1024 * 1024)
+            {
+                var retained = session.Log.ReadAfter(0);
+                logs.Text = string.Join(Environment.NewLine, retained.Lines) + Environment.NewLine;
+                displayedLines = retained.Lines.Length; logId = retained.Id;
+            }
+            else { logs.AppendText(string.Join(Environment.NewLine, batch.Lines) + Environment.NewLine); displayedLines += batch.Lines.Length; }
             logs.SelectionStart = logs.TextLength; logs.ScrollToCaret();
         }
     }
