@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using XrayDesktop.Config;
 using XrayDesktop.Core;
+using XrayDesktop.Diagnostics;
 using XrayDesktop.Storage;
 using XrayDesktop.Windows;
 
@@ -32,6 +33,19 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
     {
         if (!CanProbeHttp || child is null || ActiveEndpoint is not { } endpoint || !TcpListeners.IsOwned(endpoint, child.Id) || child.HasExited)
             throw new InvalidOperationException("A live, owned HTTP loopback listener is required; check the selected endpoint.");
+    }
+
+    internal DiagnosticContext CaptureDiagnostics(Profile? profile, Inbound? selected, Func<ProxyStatus> readProxy)
+    {
+        var active = snapshot;
+        byte[]? bytes = null;
+        if (active is not null) { active.Verify(); bytes = ProfileStore.ReadConfig(active.Path); active.Verify(); }
+        else if (profile is not null) bytes = ProfileStore.ReadConfig(profile.Path);
+        var endpoints = bytes is null ? Array.Empty<Inbound>() : ConfigInspector.Inspect(bytes).Endpoints;
+        var owned = child;
+        return new(bytes, active?.WorkingDirectory ?? profile?.WorkingDirectory, owned is null ? selected : ActiveEndpoint,
+            endpoints, owned?.Id, endpoint => owned is not null && !owned.HasExited && TcpListeners.IsOwned(endpoint, owned.Id) && !owned.HasExited,
+            () => owned is not null && !owned.HasExited, readProxy, active, LastExitCode);
     }
 
     internal async Task CheckAsync(CancellationToken token)
