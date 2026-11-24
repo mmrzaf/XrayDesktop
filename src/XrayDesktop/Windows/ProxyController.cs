@@ -65,6 +65,7 @@ internal sealed class ProxyController(ISystemProxy system, IProxyJournalStore st
             {
                 if (system.Read() != reviewed) throw new InvalidOperationException("Windows proxy changed during preparation.");
                 verifyOwner();
+                if (system.Read() != reviewed) throw new InvalidOperationException("Windows proxy changed before acquisition.");
                 writeAttempted = true;
                 system.Write(applied);
                 system.Refresh();

@@ -45,6 +45,12 @@ internal static class Program
             try { PhaseOneChecks.RealCore(); Console.WriteLine("PASS: real Xray integration."); }
             catch (Exception exception) { failures++; Console.Error.WriteLine($"FAIL: real Xray integration: {exception.Message}"); }
         }
+        if (Environment.GetEnvironmentVariable("XRAY_TEST_WININET_READ") == "1")
+        {
+            try { PhaseTwoChecks.ReadNativeSettings(); Console.WriteLine("PASS: native WinINet read-only check."); }
+            catch (Exception) { failures++; Console.Error.WriteLine("FAIL: native WinINet read-only check."); }
+        }
+        else Console.WriteLine("SKIP: native WinINet read-only check (XRAY_TEST_WININET_READ not set).");
         return failures == 0 ? 0 : 1;
     }
 

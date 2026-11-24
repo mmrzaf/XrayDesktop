@@ -200,7 +200,8 @@ internal sealed class MainForm : Form
         await Task.Run(session.VerifyHttpOwner, token);
         var original = await Task.Run(proxy.PrepareAcquire, token);
         var notice = original.External ? "Existing manual proxy or automatic configuration will be temporarily replaced. Select No and use Review / resolve to inspect the current settings first.\n\n" : "";
-        if (MessageBox.Show(this, notice + "Allow one HTTPS request to " + HttpProxyProbe.TestUri + " through the selected Xray HTTP listener? If it succeeds, Windows LAN proxy will be enabled.\n\nLocal/intranet hosts bypass the proxy. This is not a VPN.\nExisting settings will be journaled and restored on stop.", "Enable Windows proxy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        if (MessageBox.Show(this, notice + "Allow one HTTPS request to " + HttpProxyProbe.TestUri + " through the selected Xray HTTP listener? If it succeeds, Windows LAN proxy will be enabled.\n\nLocal/intranet hosts bypass the proxy. This is not a VPN.\nExisting settings will be journaled and restored on stop.", "Enable Windows proxy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        await Task.Run(session.VerifyHttpOwner, token);
         await Task.Run(() => HttpProxyProbe.VerifyAsync(endpoint, token), token);
         token.ThrowIfCancellationRequested();
         // Once the transaction starts, do not interrupt journal/write/rollback.
@@ -248,7 +249,7 @@ internal sealed class MainForm : Form
         var choice = dialog.ShowDialog(this);
         if (choice is not (DialogResult.Yes or DialogResult.No)) return;
         var keepCurrent = choice == DialogResult.No;
-        var question = keepCurrent ? "Keep the current external settings and discard the recovery journal? This does not change Windows settings." : "Restore the recorded original settings, even if another application changed them?";
+        var question = keepCurrent ? "Keep the current external settings and discard the recovery journal? This does not change Windows settings. If they still reference Xray, stopping it may break connectivity." : "Restore the recorded original settings, even if another application changed them?";
         if (MessageBox.Show(this, question, "Confirm recovery decision", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
         await Task.Run(() => proxy.ResolveReviewed(reviewed, keepCurrent));
         session.Log.Add("proxy", keepCurrent ? "User retained external proxy settings." : "Recorded proxy settings restored and verified.");

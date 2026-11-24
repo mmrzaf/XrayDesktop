@@ -25,6 +25,8 @@ internal static class PhaseTwoChecks
         ("Explicit reviewed restore can resolve conflict", ExplicitRestore),
         ("Policy denial blocks all acquisition writes", Policy),
         ("Journal creation failure blocks all acquisition writes", JournalFailure),
+        ("Stale acquisition review cannot overwrite external changes", StaleAcquire),
+        ("Policy change after acquisition retains recovery", RestorePolicy),
         ("Pre-write ownership failure never restores a third-party proxy", PreWriteOwner),
         ("Refresh failure rolls back exact applied state", ApplyRefreshFailure),
         ("Partial native write retains journal and does not overwrite mixed state", PartialWrite),
@@ -40,7 +42,7 @@ internal static class PhaseTwoChecks
     private static void Assert(bool condition) { if (!condition) throw new InvalidOperationException("Assertion failed."); }
     private static void Throws(Action run)
     {
-        try { run(); } catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception) { return; }
+        try { run(); } catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception || ex is InvalidDataException) { return; }
         throw new InvalidOperationException("Expected a guarded failure.");
     }
     private static ProxyJournal Journal(ProxySettings? original = null, ProxySettings? applied = null) => new(1, Guid.NewGuid(), "test-user", DateTimeOffset.UtcNow, original ?? Original, applied ?? Applied, "prepared");
@@ -144,6 +146,17 @@ internal static class PhaseTwoChecks
     {
         var f = new Fixture(); f.Store.FailCreate = true; Throws(f.Acquire); Assert(f.System.Writes == 0 && f.System.Current == Original);
     }
+    private static void StaleAcquire()
+    {
+        var f = new Fixture(); var reviewed = f.Controller.PrepareAcquire(); f.System.Current = External;
+        Throws(() => f.Controller.Acquire(reviewed, Endpoint, () => { })); Assert(f.System.Writes == 0 && f.Store.Pending is null && f.System.Current == External);
+    }
+    private static void RestorePolicy()
+    {
+        var f = new Fixture(); f.Acquire(); f.System.Denied = true; Throws(f.Controller.Restore);
+        Assert(f.System.Current == Applied && f.Store.Pending is not null && f.System.Writes == 1);
+        f.System.Denied = false; f.Controller.Restore(); Assert(f.System.Current == Original && f.Store.Pending is null);
+    }
     private static void PreWriteOwner()
     {
         var f = new Fixture(); var checks = 0;
@@ -205,6 +218,11 @@ internal static class PhaseTwoChecks
             store.Delete(); Assert(store.Load() is null);
         }
         finally { Directory.Delete(path, true); }
+    }
+    internal static void ReadNativeSettings()
+    {
+        var settings = new SystemProxy().Read();
+        settings.Validate(); // never log sensitive server, bypass or PAC values
     }
     private static void ProxyProbe() => ProxyProbeAsync().GetAwaiter().GetResult();
     private static async Task ProxyProbeAsync()
