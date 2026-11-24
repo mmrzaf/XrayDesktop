@@ -77,7 +77,7 @@ try {
             ('- Real Xray integration: ' + $(if ($env:XRAY_TEST_CORE) { 'passed' } else { 'skipped (local build only)' })),
             ('- Read-only WinINet: ' + $(if ($env:XRAY_TEST_WININET_READ -eq '1') { 'passed' } else { 'skipped' })),
             ('- Hidden WinForms construction: ' + $(if ($env:XRAY_TEST_UI -eq '1') { 'passed' } else { 'skipped' })),
-            '- Native proxy mutation, interactive GUI, clean-machine and private VLESS acceptance remain separate gates. This is not a stable release.'
+            '- Native proxy mutation, interactive GUI, clean-machine and private VLESS acceptance remain separate gates. CI does not establish stable release approval.'
         ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
     }
 } finally {

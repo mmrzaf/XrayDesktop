@@ -73,9 +73,20 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  release-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Check release publication guards
+        run: bash scripts/Test-Release.sh
+
   release:
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: build
+    needs: [build, release-checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -86,9 +97,6 @@ jobs:
         with:
           ref: ${{ needs.build.outputs.commit }}
           persist-credentials: false
-
-      - name: Check release publication guards
-        run: bash scripts/Test-Release.sh
 
       - name: Download the verified Windows package
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
