@@ -39,13 +39,19 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
     {
         var active = snapshot;
         byte[]? bytes = null;
-        if (active is not null) { active.Verify(); bytes = ProfileStore.ReadConfig(active.Path); active.Verify(); }
-        else if (profile is not null) bytes = ProfileStore.ReadConfig(profile.Path);
+        var readFailed = false;
+        try
+        {
+            if (active is not null) { active.Verify(); bytes = ProfileStore.ReadConfig(active.Path); active.Verify(); }
+            else if (profile is not null) bytes = ProfileStore.ReadConfig(profile.Path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        { readFailed = true; bytes = null; Log.Add("diagnostics", "Configuration unavailable; other diagnostics may still run."); }
         var endpoints = bytes is null ? Array.Empty<Inbound>() : ConfigInspector.Inspect(bytes).Endpoints;
         var owned = child;
         return new(bytes, active?.WorkingDirectory ?? profile?.WorkingDirectory, owned is null ? selected : ActiveEndpoint,
             endpoints, owned?.Id, endpoint => owned is not null && !owned.HasExited && TcpListeners.IsOwned(endpoint, owned.Id) && !owned.HasExited,
-            () => owned is not null && !owned.HasExited, readProxy, active, LastExitCode);
+            () => owned is not null && !owned.HasExited, readProxy, active, LastExitCode, readFailed, Started, line => Log.Add("diagnostic-validation", line));
     }
 
     internal async Task CheckAsync(CancellationToken token)

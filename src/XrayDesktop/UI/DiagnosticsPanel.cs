@@ -6,8 +6,8 @@ namespace XrayDesktop.UI;
 
 internal sealed class DiagnosticsPanel : UserControl
 {
-    private readonly TextBox https = new() { Width = 340, Text = "https://www.gstatic.com/generate_204", MaxLength = 2048 };
-    private readonly TextBox ip = new() { Width = 340, Text = "https://api.ipify.org", MaxLength = 2048 };
+    private readonly TextBox https = new() { Width = 340, Text = ProbePreferences.Defaults.Https, MaxLength = 2048 };
+    private readonly TextBox ip = new() { Width = 340, Text = ProbePreferences.Defaults.IpService, MaxLength = 2048 };
     private readonly ComboBox remote = new() { Width = 210, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox host = new() { Width = 190, MaxLength = 253 };
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 443, Width = 75 };
@@ -17,6 +17,7 @@ internal sealed class DiagnosticsPanel : UserControl
     private readonly ComboBox scope = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
     private readonly Button selected = new() { Text = "Run selected", AutoSize = true };
     private readonly Button all = new() { Text = "Run all", AutoSize = true };
+    private readonly Button savePreferences = new() { Text = "Save destinations locally", AutoSize = true };
     private readonly Button report = new() { Text = "Preview / export report", AutoSize = true, Enabled = false };
     private readonly Label summary = new() { AutoSize = true, Text = "No diagnostics run." };
     private readonly TableLayoutPanel options = new() { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
@@ -24,6 +25,7 @@ internal sealed class DiagnosticsPanel : UserControl
     private readonly List<DiagnosticResult> results = [];
     private bool running;
     internal event Action<DiagnosticScope>? RunRequested;
+    internal event Action? SavePreferencesRequested;
     internal Uri HttpsDestination => ProbeOptions.ParseHttps(https.Text);
 
     internal DiagnosticsPanel()
@@ -35,13 +37,14 @@ internal sealed class DiagnosticsPanel : UserControl
         selected.Click += (_, _) => { if (scope.SelectedItem is DiagnosticScope group) RunRequested?.Invoke(group); };
         all.Click += (_, _) => RunRequested?.Invoke(DiagnosticScope.All);
         report.Click += (_, _) => PreviewReport();
+        savePreferences.Click += (_, _) => SavePreferencesRequested?.Invoke();
         AddRow("HTTPS", https, LabelFor("Timeout (s)"), timeout);
         AddRow("IP service", ip, publicIp);
         AddRow("Remote", remote, host, port);
         AddRow("Consent", direct);
-        AddRow("Run", scope, selected, all, report);
-        options.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(800, 0), Text = "Run sends requests only for the selected group(s). Proxy requests follow Xray routing; direct requests bypass Windows proxy. TLS verification stays on. Results below are private; report export omits addresses and raw text." });
-        list.Columns.Add("ID", 65); list.Columns.Add("Path", 75); list.Columns.Add("Result", 80); list.Columns.Add("ms", 65); list.Columns.Add("Detail (local only)", 650);
+        AddRow("Run", scope, selected, all, report, savePreferences);
+        options.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(800, 0), Text = "Run sends requests only for the selected group(s). Proxy tests use the selected protocol endpoint or its unique anonymous inbound; selected-path comparison prefers HTTP when none is selected. Direct requests bypass Windows proxy. TLS stays verified; Xray routing determines outbound. Results below are private; report export omits addresses and raw text." });
+        list.Columns.Add("Probe", 190); list.Columns.Add("Path", 75); list.Columns.Add("Result", 80); list.Columns.Add("ms", 65); list.Columns.Add("Detail (local only)", 650);
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -65,10 +68,26 @@ internal sealed class DiagnosticsPanel : UserControl
         if (targets.Count != 1) { host.Clear(); port.Value = 443; }
     }
 
-    internal ProbeOptions ReadOptions()
+    internal ProbeOptions ReadOptions(DiagnosticScope group)
     {
-        var target = string.IsNullOrWhiteSpace(host.Text) ? null : RemoteTarget.Parse(host.Text, (int)port.Value);
-        return new(HttpsDestination, ProbeOptions.ParseHttps(ip.Text), TimeSpan.FromSeconds((double)timeout.Value), direct.Checked, publicIp.Checked, target);
+        var target = !direct.Checked || group is not (DiagnosticScope.All or DiagnosticScope.Remote) || string.IsNullOrWhiteSpace(host.Text)
+            ? null : RemoteTarget.Parse(host.Text, (int)port.Value);
+        var useHttps = group is DiagnosticScope.All or DiagnosticScope.Http or DiagnosticScope.Socks5 || (group == DiagnosticScope.Direct && direct.Checked);
+        var useIp = publicIp.Checked && (group is DiagnosticScope.All or DiagnosticScope.PublicIp);
+        return new(useHttps ? HttpsDestination : new Uri(ProbePreferences.Defaults.Https),
+            useIp ? ProbeOptions.ParseHttps(ip.Text) : new Uri(ProbePreferences.Defaults.IpService),
+            TimeSpan.FromSeconds((double)timeout.Value), direct.Checked, publicIp.Checked, target);
+    }
+
+    internal ProbePreferences ReadPreferences()
+    {
+        var value = new ProbePreferences(1, https.Text, ip.Text, (int)timeout.Value);
+        value.Validate(); return value;
+    }
+
+    internal void ApplyPreferences(ProbePreferences value)
+    {
+        https.Text = value.Https; ip.Text = value.IpService; timeout.Value = value.TimeoutSeconds;
     }
 
     internal void SetBusy(bool busy)
@@ -87,9 +106,19 @@ internal sealed class DiagnosticsPanel : UserControl
     {
         if (!running) return;
         results.Add(row);
-        var item = new ListViewItem([row.Id, row.Path.ToString(), row.Outcome.ToString(), row.Milliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture), row.Detail]) { ToolTipText = row.Timestamp.ToLocalTime().ToString("G") + " — " + row.Detail };
+        var item = new ListViewItem(new[] { row.Id + " " + ProbeName(row.Id), row.Path.ToString(), row.Outcome.ToString(), row.Milliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture), row.Detail }) { ToolTipText = row.Timestamp.ToLocalTime().ToString("G") + " — " + row.Detail };
         list.Items.Add(item);
     }
+
+    private static string ProbeName(string id) => id switch
+    {
+        "D01" => "Core version", "D02" => "JSON inspection", "D03" => "Native validation",
+        "D04" => "Remote discovery", "D05" => "DNS resolution", "D06" => "TCP handshake",
+        "D07" => "Local listener", "D08" => "HTTP HTTPS", "D09" => "SOCKS5 HTTPS",
+        "D10" => "Direct HTTPS", "D11" => "Selected path latency", "D12a" => "Direct IP",
+        "D12b" => "Proxied IP", "D12c" => "IP comparison", "D13" => "Windows proxy",
+        "D14" => "Process health", _ => "Unknown"
+    };
 
     internal void EndRun(IReadOnlyList<DiagnosticResult>? final)
     {

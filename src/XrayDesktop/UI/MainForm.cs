@@ -11,6 +11,8 @@ internal sealed class MainForm : Form
     private readonly ProfileStore store = new(Path.Combine(AppContext.BaseDirectory, "data"));
     private readonly SessionController session = new(AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, "data"));
     private readonly DiagnosticsPanel diagnostics = new();
+    private readonly ProbePreferenceStore probePreferences = new(Path.Combine(AppContext.BaseDirectory, "data"));
+    private bool probePreferencesUnreadable;
     private readonly DiagnosticRunner diagnosticRunner = new(AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, "data"));
     private bool diagnosing;
     private readonly ProxyController proxy = new(new SystemProxy(), ProxyRecovery.ForCurrentUser());
@@ -61,6 +63,7 @@ internal sealed class MainForm : Form
         var diagnosticTab = new TabPage("Diagnostics"); diagnosticTab.Controls.Add(diagnostics);
         tabs.TabPages.Add(logTab); tabs.TabPages.Add(diagnosticTab); content.Controls.Add(tabs, 0, 8);
         diagnostics.RunRequested += async scope => await RunAsync(token => RunDiagnosticsAsync(scope, token));
+        diagnostics.SavePreferencesRequested += async () => await RunAsync(SaveProbePreferencesAsync);
         Controls.Add(content);
         profiles.SelectedIndexChanged += async (_, _) => { if (!updating && !busy) await RunAsync(async token => { await PersistAsync(); await InspectAsync(token); }); };
         Shown += async (_, _) => { await RunAsync(InitializeAsync); timer.Start(); };
@@ -113,6 +116,9 @@ internal sealed class MainForm : Form
         try { settings = await Task.Run(store.Load, token); }
         catch (Exception ex) { settingsUnreadable = true; session.Log.Add("app", $"Settings unreadable; original retained: {ex.Message}"); }
         RefreshProfiles(settings.ActiveId); await InspectAsync(token);
+        try { diagnostics.ApplyPreferences(await Task.Run(probePreferences.Load, token)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException or InvalidDataException)
+        { probePreferencesUnreadable = true; session.Log.Add("app", "Diagnostic preferences unreadable; defaults used and original retained."); }
         session.Log.Add("app", "Use trusted core/config files only. Local configurations and logs can contain credentials. No automatic core start. Proxy settings are managed only after explicit enablement or recovery.");
         await CheckAsync(token);
     }
@@ -191,9 +197,17 @@ internal sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { warnings.Text = ex.Message; }
     }
+    private async Task SaveProbePreferencesAsync(CancellationToken token)
+    {
+        var value = diagnostics.ReadPreferences();
+        var warning = probePreferencesUnreadable ? "Existing diagnostic preferences are unreadable and will be replaced.\n\n" : "";
+        if (MessageBox.Show(this, warning + "Save probe URLs and timeout locally? URLs may contain private query parameters. Direct/public-IP consent and remote targets will not be saved.", "Diagnostic preferences", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        await Task.Run(() => probePreferences.Save(value), token); probePreferencesUnreadable = false;
+        session.Log.Add("app", "Diagnostic destinations and timeout saved locally.");
+    }
     private async Task RunDiagnosticsAsync(DiagnosticScope scope, CancellationToken token)
     {
-        var options = diagnostics.ReadOptions();
+        var options = diagnostics.ReadOptions(scope);
         var profile = Selected; var selected = endpoints.SelectedItem as Inbound;
         diagnosing = true; diagnostics.BeginRun();
         IReadOnlyList<DiagnosticResult>? rows = null;

@@ -14,8 +14,8 @@ internal enum Outcome { Pass, Fail, Warning, Skipped, Cancelled }
 internal enum ProbePath { Local, Direct, Http, Socks5 }
 internal enum ResultCode { Ok, BaselineMismatch, Missing, Invalid, Unavailable, NotRequested, NotApplicable, Ambiguous, NotOwned, Occupied, HttpStatus, Timeout, Cancelled, Dns, Connection, Tls, Proxy, InvalidResponse, Error, External, Recovery, SameIp, DifferentIp }
 internal enum DiagnosticScope { All, Local, Remote, Http, Socks5, Direct, PublicIp }
-internal sealed record DiagnosticResult(string Id, ProbePath Path, Outcome Outcome, ResultCode Code, long Milliseconds, DateTimeOffset Timestamp, string Detail);
-internal sealed record DiagnosticContext(byte[]? Config, string? WorkingDirectory, Inbound? Selected, IReadOnlyList<Inbound> Endpoints, int? Pid, Func<Inbound, bool> IsOwned, Func<bool> IsAlive, Func<ProxyStatus> ReadProxy, RunSnapshot? ActiveSnapshot, int? LastExitCode);
+internal sealed record DiagnosticResult(string Id, ProbePath Path, Outcome Outcome, ResultCode Code, long Milliseconds, DateTimeOffset Timestamp, string Detail, string? DetectedCoreVersion = null);
+internal sealed record DiagnosticContext(byte[]? Config, string? WorkingDirectory, Inbound? Selected, IReadOnlyList<Inbound> Endpoints, int? Pid, Func<Inbound, bool> IsOwned, Func<bool> IsAlive, Func<ProxyStatus> ReadProxy, RunSnapshot? ActiveSnapshot, int? LastExitCode, bool ConfigReadFailed = false, DateTimeOffset? Started = null, Action<string>? LogValidation = null);
 
 internal sealed class DiagnosticRunner(string baseDirectory, string dataDirectory)
 {
@@ -29,7 +29,8 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
         bool Includes(DiagnosticScope group) => scope == DiagnosticScope.All || scope == group;
         var http = Choose(context, "http"); var socks = Choose(context, "socks");
         var selected = context.Selected?.Protocol == "socks" ? socks : context.Selected?.Protocol == "http" ? http : http ?? socks;
-        var proxyPath = selected?.Protocol == "socks" ? ProbePath.Socks5 : ProbePath.Http;
+        var proxyPath = (selected?.Protocol ?? context.Selected?.Protocol) == "socks" ? ProbePath.Socks5 : ProbePath.Http;
+        string? detectedCoreVersion = null;
         IPAddress? directIp = null, proxiedIp = null;
         var localLimit = TimeSpan.FromSeconds(10);
         if (Includes(DiagnosticScope.Local))
@@ -38,9 +39,10 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
             {
                 if (!core.Exists) return Fail(ResultCode.Missing, "Adjacent xray.exe not found.");
                 var check = await core.CheckAsync(ct).ConfigureAwait(false);
+                detectedCoreVersion = check.Version;
                 return check.IsBaseline ? Pass($"Xray {check.Version}") : Warn(ResultCode.BaselineMismatch, $"Xray {check.Version}; outside baseline.");
             });
-            await Run("D02", ProbePath.Local, localLimit, _ => Task.FromResult(Inspect(context.Config)));
+            await Run("D02", ProbePath.Local, localLimit, _ => Task.FromResult(context.ConfigReadFailed ? Fail(ResultCode.Unavailable, "Configuration could not be read or the runtime snapshot changed.") : Inspect(context.Config)));
             await Run("D03", ProbePath.Local, TimeSpan.FromSeconds(15), async ct =>
             {
                 if (context.Config is null || context.WorkingDirectory is null) return Skip(ResultCode.Missing, "No configuration available.");
@@ -55,15 +57,21 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
                     using var snapshot = new RunSnapshot(dataDirectory, context.Config, context.WorkingDirectory);
                     snapshot.Verify(); result = await core.ValidateAsync(snapshot, ct).ConfigureAwait(false);
                 }
+                foreach (var line in result.Output) context.LogValidation?.Invoke(line);
                 return result.ExitCode == 0 ? Pass("Native configuration validation succeeded.") : Fail(ResultCode.Invalid, $"Native validation exited {result.ExitCode}; inspect configuration locally.");
             });
             await Run("D07", ProbePath.Local, localLimit, _ => Task.FromResult(Listener(context)));
             await Run("D13", ProbePath.Local, localLimit, _ => Task.FromResult(Proxy(context.ReadProxy())));
-            await Run("D14", ProbePath.Local, localLimit, _ => Task.FromResult(context.Pid is int pid && context.IsAlive() ? Pass($"Owned core PID {pid} is alive.") : Skip(ResultCode.NotApplicable, $"No live owned core. Last exit: {context.LastExitCode?.ToString() ?? "unknown"}.")));
+            await Run("D14", ProbePath.Local, localLimit, _ => Task.FromResult(context.Pid is int pid && context.IsAlive() ? Pass($"Owned core PID {pid} is alive; uptime {(context.Started is { } started ? (DateTimeOffset.Now - started).ToString(@"d\.hh\:mm\:ss") : "unknown")}.") : Skip(ResultCode.NotApplicable, $"No live owned core. Last exit: {context.LastExitCode?.ToString() ?? "unknown"}.")));
         }
         if (Includes(DiagnosticScope.Remote))
         {
-            await Run("D04", ProbePath.Local, localLimit, _ => Task.FromResult(context.Config is null ? Skip(ResultCode.Missing, "No configuration.") : Pass($"{RemoteDiscovery.Discover(context.Config).Count} candidate remote endpoint(s); discovery is advisory.")));
+            await Run("D04", ProbePath.Local, localLimit, _ =>
+            {
+                if (context.Config is null) return Task.FromResult(Skip(ResultCode.Missing, "No configuration."));
+                var count = RemoteDiscovery.Discover(context.Config).Count;
+                return Task.FromResult(count == 0 ? Skip(ResultCode.NotApplicable, "No recognized outbound server; enter a remote target manually.") : Pass($"{count} candidate remote endpoint(s); discovery is advisory."));
+            });
             await Run("D05", ProbePath.Direct, options.NetworkTimeout, async ct =>
             {
                 if (!options.Direct || options.Remote is not { } remote) return Skip(ResultCode.NotRequested, "Direct remote probe not selected.");
@@ -81,7 +89,18 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
         if (Includes(DiagnosticScope.Http)) await Run("D08", ProbePath.Http, options.NetworkTimeout, ct => Https(http, true, ct));
         if (Includes(DiagnosticScope.Socks5)) await Run("D09", ProbePath.Socks5, options.NetworkTimeout, ct => Https(socks, true, ct));
         if (Includes(DiagnosticScope.Direct)) await Run("D10", ProbePath.Direct, options.NetworkTimeout, ct => options.Direct ? Https(null, false, ct) : Task.FromResult(Skip(ResultCode.NotRequested, "Direct HTTPS not approved.")));
-        if (scope == DiagnosticScope.All) await Run("D11", proxyPath, options.NetworkTimeout, ct => Https(selected, true, ct));
+        if (scope == DiagnosticScope.All)
+        {
+            // Reuse the actual HTTP/SOCKS measurement; no duplicate outbound request.
+            if (selected is null || suite.IsCancellationRequested)
+                await Run("D11", proxyPath, localLimit, _ => Task.FromResult(Skip(ResultCode.Unavailable, "No eligible selected proxy measurement.")));
+            else
+            {
+                var measurement = results.Single(r => r.Id == (proxyPath == ProbePath.Socks5 ? "D09" : "D08"));
+                var row = measurement with { Id = "D11", Detail = "Selected path (same measurement): " + measurement.Detail };
+                results.Add(row); progress?.Report(row);
+            }
+        }
         if (Includes(DiagnosticScope.PublicIp))
         {
             await Run("D12a", ProbePath.Direct, options.NetworkTimeout, async ct =>
@@ -121,14 +140,14 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
             try { deadline.Token.ThrowIfCancellationRequested(); value = await probe(deadline.Token).ConfigureAwait(false); deadline.Token.ThrowIfCancellationRequested(); }
             catch (OperationCanceledException) { value = token.IsCancellationRequested ? (Outcome.Cancelled, ResultCode.Cancelled, "Cancelled by user or session.") : Fail(ResultCode.Timeout, "Probe or suite deadline exceeded."); }
             catch (Exception ex) { value = Classify(ex); }
-            var row = new DiagnosticResult(id, path, value.outcome, value.code, watch.ElapsedMilliseconds, timestamp, value.detail);
+            var row = new DiagnosticResult(id, path, value.outcome, value.code, watch.ElapsedMilliseconds, timestamp, value.detail, id == "D01" && (value.outcome is Outcome.Pass or Outcome.Warning) ? detectedCoreVersion : null);
             results.Add(row); progress?.Report(row);
         }
     }
 
     internal static Inbound? Choose(DiagnosticContext context, string protocol)
     {
-        if (context.Selected is { } selected && selected.Protocol == protocol && (selected.Manual || !selected.Authenticated)) return selected;
+        if (context.Selected is { } selected && selected.Protocol == protocol) return selected.Manual || !selected.Authenticated ? selected : null;
         var candidates = context.Endpoints.Where(e => e.Protocol == protocol && !e.Authenticated).Take(2).ToArray();
         return candidates.Length == 1 ? candidates[0] : null;
     }
@@ -152,14 +171,18 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
         return listeners.Any(l => l.Port == endpoint.Port) ? Warn(ResultCode.Occupied, "Port in use on a local address; inspect before binding.") : Pass("No TCP listener found on this port; not a binding guarantee.");
     }
 
-    private static (Outcome, ResultCode, string) Proxy(ProxyStatus status) => status.State switch
+    private static (Outcome, ResultCode, string) Proxy(ProxyStatus status)
     {
-        ProxyState.Managed => Pass("Managed Windows LAN proxy."),
-        ProxyState.Unmanaged => Pass("No managed or external LAN proxy."),
-        ProxyState.External => Warn(ResultCode.External, "External Windows proxy or automatic configuration."),
-        ProxyState.Unavailable => Fail(ResultCode.Unavailable, "Windows proxy state unavailable."),
-        _ => Warn(ResultCode.Recovery, "Proxy recovery or conflict requires review.")
-    };
+        var detail = status.Current is { } current ? $" Flags: 0x{current.Flags:X}; server configured: {current.Server.Length > 0}; bypass configured: {current.Bypass.Length > 0}; PAC URL configured: {current.Pac.Length > 0}." : "";
+        return status.State switch
+        {
+            ProxyState.Managed => Pass("Managed Windows LAN proxy." + detail),
+            ProxyState.Unmanaged => Pass("No managed or external LAN proxy." + detail),
+            ProxyState.External => Warn(ResultCode.External, "External Windows proxy or automatic configuration." + detail),
+            ProxyState.Unavailable => Fail(ResultCode.Unavailable, "Windows proxy state unavailable."),
+            _ => Warn(ResultCode.Recovery, "Proxy recovery or conflict requires review." + detail)
+        };
+    }
 
     internal static (Outcome, ResultCode, string) Classify(Exception ex) => ex switch
     {
@@ -169,7 +192,7 @@ internal sealed class DiagnosticRunner(string baseDirectory, string dataDirector
         HttpRequestException { HttpRequestError: HttpRequestError.ProxyTunnelError } => Fail(ResultCode.Proxy, "Proxy tunnel failed."),
         HttpRequestException { HttpRequestError: HttpRequestError.ConnectionError } => Fail(ResultCode.Connection, "HTTPS connection failed."),
         SocketException { SocketErrorCode: SocketError.HostNotFound or SocketError.NoData or SocketError.TryAgain } => Fail(ResultCode.Dns, "OS DNS resolution failed."),
-        SocketException => Fail(ResultCode.Connection, "TCP/socket connection failed."),
+        SocketException socket => Fail(ResultCode.Connection, $"TCP/socket connection failed (code {socket.ErrorCode})."),
         TimeoutException => Fail(ResultCode.Timeout, "Operation timed out."),
         JsonException => Fail(ResultCode.Invalid, "Invalid JSON syntax."),
         InvalidDataException => Fail(ResultCode.InvalidResponse, "Invalid or unexpected data."),
