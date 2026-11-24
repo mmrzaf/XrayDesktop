@@ -2,7 +2,7 @@
 
 Portable Windows x64 controller with a bundled, verified Xray-core and raw Xray JSON configurations. Development follows [SDD.md](SDD.md).
 
-**Status:** Phase 5 source preview (`0.2.1`), pending Windows acceptance. The first Windows run compiled with zero warnings and errors, but failed two runtime checks; targeted fixes await rerun. See [CI and release workflow](docs/ci-release.md). See [Phase 5 acceptance](docs/phase-5.md), [manual acceptance checklist](docs/acceptance-checklist.md), [Phase 4 acceptance](docs/phase-4.md), [Phase 3 acceptance](docs/phase-3.md), [Phase 2 acceptance](docs/phase-2.md) and the historical [Phase 1 record](docs/phase-1.md).
+**Status:** Phase 5 source preview (`0.3.0`), pending Windows acceptance. The first Windows run compiled with zero warnings and errors, but failed two runtime checks; targeted fixes await rerun. See [CI and release workflow](docs/ci-release.md). See [Phase 5 acceptance](docs/phase-5.md), [manual acceptance checklist](docs/acceptance-checklist.md), [Phase 4 acceptance](docs/phase-4.md), [Phase 3 acceptance](docs/phase-3.md), [Phase 2 acceptance](docs/phase-2.md) and the historical [Phase 1 record](docs/phase-1.md).
 
 ## Users
 
@@ -10,15 +10,15 @@ Download the portable ZIP, extract the whole archive to a private writable direc
 
 Replacing `xray.exe` or the geodata files with another compatible build is an optional advanced operation; the application still detects the adjacent executable, checks its version and warns when it is outside the tested baseline. The [third-party notices](docs/THIRD-PARTY-NOTICES.txt) record the bundled core and geodata provenance and licenses.
 
-- Import raw JSON/JSONC as an external reference or a managed copy; create, edit, explicitly save, Save As, reload or remove references. Removing a reference never deletes its file.
-- The Start tab walks through configuration, optional listener verification, validate/start and optional Windows proxy. A profile with only a SOCKS inbound can run, but Windows system proxy requires an anonymous HTTP listener; the app says so in step 4 and offers **Add HTTP listener…**, which creates a validated managed copy without changing the original.
-- Validate with the native Xray command, then Start, Stop or Restart. Start validates exact snapshot bytes and runs the same snapshot. Select a detected local HTTP/SOCKS endpoint or manual loopback endpoint for listener ownership verification.
-- Check core version, state, PID, listener status, raw bounded logs. Other core versions require confirmation before starting. Raw logs and local profile files may contain secrets.
+- Import raw JSON/JSONC as an external reference or a managed copy; create, edit, explicitly save, Save As, reload or remove references. You can also drag a `.json`/`.jsonc` file onto the window. Removing a reference never deletes its file.
+- The Start tab walks through configuration, optional listener verification, validate/start and optional Windows proxy. It shows the detected listeners, outbound tags and routing-rule count, warns about a port already in use, and offers **Use free port…** to create a validated managed copy with the selected listener moved. A profile with only a SOCKS inbound can run, but Windows system proxy requires an anonymous HTTP listener; **Add HTTP listener…** creates a validated managed copy without changing the original.
+- Validate with the native Xray command, then Start, Stop or Restart. Start validates exact snapshot bytes and runs the same snapshot. Validation output is shown inline, and **Run local checks** combines the core check, native validation and non-invasive Local diagnostics. Select a detected local HTTP/SOCKS endpoint or manual loopback endpoint for listener ownership verification.
+- Check core version, state, PID, listener status, raw bounded logs. Other core versions require confirmation before starting. Raw logs and local profile files may contain secrets; **Find…** searches the bounded log buffer.
 - Enable or restore the current-user default LAN proxy independently of Xray. Select a live, owned HTTP listener, then approve the one-shot HTTPS test to the destination configured in Diagnostics (default `https://www.gstatic.com/generate_204`). SOCKS-only or known authenticated listeners are not eligible. No public request is initiated by merely opening the GUI or starting the core with the default checkbox off.
 - Existing settings are recorded before a write, verified on read-back, and restored before Stop/Restart/Close or after a detected child exit. An interrupted transaction is recovered at next launch; use Review / resolve for conflicting external changes. No machine-wide WinHTTP or TUN control.
 - Open **Diagnostics** to inspect local state or explicitly run remote DNS/TCP, HTTP proxy, SOCKS5 proxy, direct HTTPS and public IP checks. Direct and IP tests are opt-in; the report preview excludes raw details and addresses. Save destinations and timeout locally if desired. See [Phase 3 acceptance](docs/phase-3.md) for interpretation and limits.
-- The notification-area icon is present while the GUI runs. Its menu reopens the window and offers the same gated Start/Stop/Enable/Restore commands. **Settings > Save desktop preferences** can opt into minimize-to-tray; Close and tray Exit still restore the proxy and stop the owned core. Tray commands reopen the window so confirmations stay visible.
-- Settings can remember window position/size and log auto-scroll, reset desktop/probe preferences, or clear profile references without deleting the actual configuration files. Raw logs can be saved locally only after a sensitive-data warning. No automatic disk logging.
+- The notification-area icon is present while the GUI runs. Its menu reopens the window and offers the same gated Start/Stop/Enable/Restore commands plus local checks. Unexpected core exits and failures raise a tray notification when the window is hidden. **Settings > Save desktop preferences** can opt into minimize-to-tray; Close and tray Exit still restore the proxy and stop the owned core. Tray commands reopen the window so confirmations stay visible.
+- Settings can remember window position/size and log auto-scroll, reset desktop/probe preferences, or clear profile references without deleting the actual configuration files. Shortcuts are listed in Settings. Raw logs can be saved locally only after a sensitive-data warning. No automatic disk logging.
 - If force-killed, the Windows proxy may remain set until you reopen the app or manually restore your old settings. See [recovery instructions](#proxy-recovery). No telemetry or core downloads.
 
 The bundled example has a `freedom` outbound and is not a VPN or privacy-protecting connection. Use only trusted configurations; the GUI does not sandbox Xray. See [portable instructions](docs/portable-readme.txt).
@@ -54,8 +54,8 @@ The integration test uses a temporary freedom-outbound configuration with separa
 
 ```text
 artifacts/phase5/dist/
-  XrayDesktop-0.2.1-win-x64.zip
-  XrayDesktop-0.2.1-win-x64.zip.sha256
+  XrayDesktop-0.3.0-win-x64.zip
+  XrayDesktop-0.3.0-win-x64.zip.sha256
 ```
 
 `scripts/XrayDistribution.psm1` is the single source for the pinned core version, release asset, archive SHA-256 and packaged file hashes. `scripts/Get-TestCore.ps1` downloads and verifies that distribution once per workflow run; `Build.ps1` reuses it for integration checks and packaging. Packaging rejects missing, corrupted or unexpected files, checks that the packaged core and geodata match the verified distribution byte-for-byte, runs the extracted `xray.exe` version command, exercises the extracted GUI, and runs a real-core integration check from the extracted package. The archive includes the upstream core license, geodata licenses and `THIRD-PARTY-NOTICES.txt`; no Xray binary or geodata is committed to Git.

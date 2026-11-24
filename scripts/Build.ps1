@@ -33,7 +33,7 @@ try {
     $testProject = 'tests/XrayDesktop.Checks/XrayDesktop.Checks.csproj'
     $version = ([xml] (Get-Content -LiteralPath 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
     if ($version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
-        throw 'Directory.Build.props must declare a version such as 0.2.1 or 1.0.0-rc.1.'
+        throw 'Directory.Build.props must declare a version such as 0.3.0 or 1.0.0-rc.1.'
     }
     if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
         throw "Tag '$($env:GITHUB_REF_NAME)' must match the application version v$version."

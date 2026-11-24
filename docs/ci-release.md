@@ -30,16 +30,16 @@ From an up-to-date `main` with both CI jobs passing, using Git Bash or any Git t
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a v0.2.1 -m "Release 0.2.1"
-git push origin v0.2.1
+git tag -a v0.3.0 -m "Release 0.3.0"
+git push origin v0.3.0
 ```
 
 The tag runs the full Windows pipeline again. Publication downloads the actual tested artifact, verifies its SHA-256 manifest again, resolves the exact tag ref (including annotated tags) to the tested commit, refuses existing releases, then creates a GitHub Release with generated notes and these two files:
 
-- `XrayDesktop-0.2.1-win-x64.zip`
-- `XrayDesktop-0.2.1-win-x64.zip.sha256`
+- `XrayDesktop-0.3.0-win-x64.zip`
+- `XrayDesktop-0.3.0-win-x64.zip.sha256`
 
-The ZIP contains the GUI, the verified Xray-core v26.11.9 executable, its GeoIP and GeoSite data, README, third-party notices, license texts, example configuration and the internal SHA-256 manifest. Tags with a prerelease suffix are marked as prereleases and not latest; `v0.2.1` has no suffix, so it publishes as a regular release. A stable release still requires first passing the manual acceptance checklist. Publication of a stable tag is an explicit maintainer approval; CI cannot verify interactive/manual checks on its own. The package contains only the pinned public Xray distribution and the application; private configurations, test data and logs are never published. No PAT is required: the publication job uses the repository's `GITHUB_TOKEN` with `contents: write`, subject to repository/organization rules. The other jobs have read-only contents permissions. If a release already exists, review it rather than overwriting its assets or moving the tag.
+The ZIP contains the GUI, the verified Xray-core v26.11.9 executable, its GeoIP and GeoSite data, README, third-party notices, license texts, example configuration and the internal SHA-256 manifest. Tags with a prerelease suffix are marked as prereleases and not latest; `v0.3.0` has no suffix, so it publishes as a regular release. A stable release still requires first passing the manual acceptance checklist. Publication of a stable tag is an explicit maintainer approval; CI cannot verify interactive/manual checks on its own. The package contains only the pinned public Xray distribution and the application; private configurations, test data and logs are never published. No PAT is required: the publication job uses the repository's `GITHUB_TOKEN` with `contents: write`, subject to repository/organization rules. The other jobs have read-only contents permissions. If a release already exists, review it rather than overwriting its assets or moving the tag.
 
 ## Release guard checks
 

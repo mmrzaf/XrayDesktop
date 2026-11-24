@@ -1,4 +1,4 @@
-Xray Desktop 0.2.1 - portable preview (acceptance pending)
+Xray Desktop 0.3.0 - portable preview (acceptance pending)
 ==========================================================
 
 Windows x64. Extract the entire archive into a writable, private folder. The
@@ -37,11 +37,20 @@ with only a SOCKS inbound can still run and serve apps on that SOCKS port, but
 Windows system proxy control requires an eligible anonymous HTTP listener; the
 app explains this in step 4 instead of leaving you with a dead button. Use
 Add HTTP listener… to create a validated managed copy with a local HTTP
-listener; the original profile is not modified.
+listener; the original profile is not modified. If a listener port is already
+in use, Use free port… creates a validated managed copy with a different port.
 
 Validate shows the exact Xray output on the Start tab when a configuration is
-rejected. Errors show a banner with Run Local diagnostics, Open Logs and
-Dismiss. A port already in use is called out before Start.
+rejected. Run local checks combines the core check, Xray validation and Local
+diagnostics without sending traffic. Errors show a banner with Run Local
+diagnostics, Open Logs and Dismiss. Use Find… (Ctrl+F) to search the bounded log
+buffer. A port already in use is called out before Start.
+
+You can drag a .json or .jsonc file onto the window to import it. Shortcuts:
+Ctrl+O import, Ctrl+N new, Ctrl+E edit, Ctrl+R reload, F5 validate, F6
+start/stop, F7 check core, F8 enable proxy, F9 restore proxy, Ctrl+F find logs,
+Ctrl+L Logs, Ctrl+D Diagnostics, Ctrl+, Settings. Tray notifications report an
+unexpected core exit when the window is hidden.
 
 Start, Logs, Diagnostics and Settings are separate tabs. The Start tab is
 numbered: choose a configuration, optionally choose the listener to verify,

@@ -1,6 +1,6 @@
 # Phase 5 — portable preview and acceptance status
 
-**Preview:** `0.2.1` (source only). **Stable release:** NOT APPROVED.
+**Preview:** `0.3.0` (source only). **Stable release:** NOT APPROVED.
 
 The SDD requires actual Windows build and runtime evidence. Prior source previews did not satisfy their exit gates. This phase prepares a preview build, not a claim of acceptance. No stable tag, signed executable, or release attachment has been created.
 
@@ -12,7 +12,7 @@ The SDD requires actual Windows build and runtime evidence. Prior source preview
 - HTTPS proxy acquisition now distinguishes an internal verification deadline from caller cancellation. The new loopback regression check exercises both conditions. The acquisition deadline remains 10 seconds in production.
 - Preview packaging still uses the pinned SDK, read-only CI, no third-party application packages, and extracted executable checks. The build summary distinguishes skipped optional tests from passed checks. Hidden native-form construction remains opt-in; interactive desktop acceptance is mandatory before promotion.
 - The portable package now bundles the official v26.11.9 `xray.exe`, `geoip.dat`, `geosite.dat`, license texts and third-party notices. Packaging verifies the archive and file hashes, byte identity with the verified distribution, the extracted core's version output, the extracted GUI headless checks and a real-core integration run from the extracted package. No Xray binary or geodata is committed to Git.
-- The main window now uses a persistent status header (current state, next action, last error), numbered workflow sections on the Start tab, prominent primary actions, and an inline error banner with direct access to Logs and Local diagnostics. Validation output is shown on the Start tab, port conflicts are called out before Start, and SOCKS-only profiles can be copied into a validated managed profile with an HTTP listener. Validation messages state whether Xray accepted the configuration instead of only reporting an exit code.
+- The main window now uses a persistent status header (current state, next action, last error), numbered workflow sections on the Start tab, prominent primary actions, and an inline error banner with direct access to Logs and Local diagnostics. Validation output is shown inline; the selected profile shows listeners, outbounds and routing-rule count; port conflicts can be fixed in a validated managed copy; SOCKS-only profiles can be copied into a proxy-ready profile; JSONC files can be dropped onto the window; log search, keyboard shortcuts and hidden-window tray alerts are available.
 
 ## Evidence available now
 
