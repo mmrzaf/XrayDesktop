@@ -1,4 +1,4 @@
-Xray Desktop - Phase 1 development preview
+Xray Desktop - Phase 2 development preview
 ==========================================
 
 Windows x64. Extract the entire archive into a writable, private folder.
@@ -17,10 +17,31 @@ processes. Choose an explicit local inbound or a manual loopback endpoint to
 check TCP listener ownership. Listener ownership does not establish HTTP/SOCKS
 capability or remote connectivity.
 
-Phase 1 does not change Windows system proxy settings, support TUN, or perform
-public internet probes. The example direct-test.json uses a direct outbound;
-it is NOT a VPN or privacy-protecting connection. Stop/Restart/Close are local
-core controls only. No third-party credentials are needed for automated checks.
+After Start, choose Enable system proxy and approve a single HTTPS test to
+https://example.com/ through the selected owned HTTP proxy. On success, the
+app manages the current user's default Windows LAN proxy. Local/intranet hosts
+bypass it. SOCKS-only or known authenticated endpoints are not eligible. The
+optional enable-after-Start checkbox is off by default, lasts for this GUI
+session and still asks before the test. Restore system proxy can leave Xray
+running. Stop/Restart/Close restore first; a failed restore requires explicit
+confirmation before force stop. Restart does not automatically reacquire proxy
+unless enable-after-Start is selected and the user approves again.
+
+On abnormal GUI termination, Windows may still reference the dead listener.
+Reopen under the same Windows user; recovery runs before core detection.
+Use Review / resolve if another application changed settings; review the
+original, intended and current settings locally (they may contain secrets).
+If recovery is impossible, open Settings > Network & Internet > Proxy and
+restore the previously known manual proxy, script and auto-detect values.
+Do not disable a pre-existing corporate proxy indiscriminately. The encrypted
+journal at %LOCALAPPDATA%\XrayDesktop\ProxyRecovery\pending.dpapi is not in
+the portable folder; do not delete it unless manual recovery is verified.
+An unreadable journal can be moved to a private backup after all app copies
+are closed and manual recovery is confirmed.
+
+No TUN, WinHTTP machine proxy or general internet diagnostics yet. The example
+uses a direct outbound; it is NOT a VPN or privacy-protecting connection.
+No third-party credentials or public requests are needed for default checks.
 
 Configurations and snapshots are plaintext in the app data directory; keep
 this directory private. Raw logs may include secrets. Copy raw logs requires

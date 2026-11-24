@@ -42,7 +42,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: XrayDesktop-win-x64-${{ github.sha }}
-          path: artifacts/phase1/dist/*
+          path: artifacts/phase2/dist/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

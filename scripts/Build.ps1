@@ -30,7 +30,7 @@ try {
     $project = 'src/XrayDesktop/XrayDesktop.csproj'
     $testProject = 'tests/XrayDesktop.Checks/XrayDesktop.Checks.csproj'
     $version = ([xml] (Get-Content -LiteralPath $project -Raw)).Project.PropertyGroup.Version
-    $output = Join-Path $root 'artifacts/phase1'
+    $output = Join-Path $root 'artifacts/phase2'
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Recurse -Force
     }
@@ -59,13 +59,14 @@ try {
     & (Join-Path $PSScriptRoot 'New-PortablePackage.ps1') -PublishDirectory $publish -OutputDirectory $dist -ExpectedVersion $version
     if ($env:GITHUB_STEP_SUMMARY) {
         @(
-            '## Phase 1 Windows build',
+            '## Phase 2 Windows build',
             '',
             ('- SDK: ' + $sdk),
             ('- App version: ' + $version),
             '- Release solution build and console checks passed.',
             '- Portable ZIP layout, internal SHA-256 manifest and extracted executable checks passed.',
-            '- Real Xray integration is optional via XRAY_TEST_CORE; visual GUI and clean-machine acceptance remain separate gates.'
+            '- Proxy transaction checks use a simulated backend; no Windows proxy changes are made by default.',
+            '- Real Xray and read-only WinINet tests are optional via XRAY_TEST_CORE and XRAY_TEST_WININET_READ; native proxy mutation, GUI and clean-machine acceptance remain separate gates.'
         ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
     }
 } finally {

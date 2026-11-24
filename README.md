@@ -2,7 +2,7 @@
 
 Portable Windows x64 controller for an external Xray-core and raw Xray JSON configurations. Development follows [SDD.md](SDD.md).
 
-**Status:** Phase 1 source preview (`0.1.0-preview.1`). Phase 0 and Phase 1 Windows build/runtime gates are not yet evidenced. No system proxy integration yet. See [Phase 1 acceptance](docs/phase-1.md).
+**Status:** Phase 2 source preview (`0.1.0-preview.2`). Phase 0–2 Windows build/runtime gates are not yet evidenced. See [Phase 2 acceptance](docs/phase-2.md) and the historical [Phase 1 record](docs/phase-1.md).
 
 ## Users
 
@@ -11,9 +11,19 @@ After a successful Windows build, extract the portable ZIP to a private writable
 - Import raw JSON/JSONC as an external reference or a managed copy; create, edit, explicitly save, Save As, reload or remove references. Removing a reference never deletes its file.
 - Validate with the native Xray command, then Start, Stop or Restart. Start validates exact snapshot bytes and runs the same snapshot. Select a detected local HTTP/SOCKS endpoint or manual loopback endpoint for listener ownership verification.
 - Check core version, state, PID, listener status, raw bounded logs. Other core versions require confirmation before starting. Raw logs and local profile files may contain secrets.
-- Windows system proxy management, internet diagnostics and tray support are later phases. No automatic network probes, core downloads or telemetry.
+- Enable or restore the current-user default LAN proxy independently of Xray. Select a live, owned HTTP listener, then approve the one-shot HTTPS test to `https://example.com/`. SOCKS-only or known authenticated listeners are not eligible. No public request is initiated by merely opening the GUI or starting the core with the default checkbox off.
+- Existing settings are recorded before a write, verified on read-back, and restored before Stop/Restart/Close or after a detected child exit. An interrupted transaction is recovered at next launch; use Review / resolve for conflicting external changes. No machine-wide WinHTTP or TUN control. Diagnostics and tray support are later phases.
+- If force-killed, the Windows proxy may remain set until you reopen the app or manually restore your old settings. See [recovery instructions](#proxy-recovery). No telemetry or core downloads.
 
 The bundled example has a `freedom` outbound and is not a VPN or privacy-protecting connection. Use only trusted configurations; the GUI does not sandbox Xray. See [portable instructions](docs/portable-readme.txt).
+
+## Proxy recovery
+
+Recovery is stored per Windows user, outside the portable folder, at `%LOCALAPPDATA%\XrayDesktop\ProxyRecovery\pending.dpapi`. This allows recovery after moving the application. The journal is protected with current-user Windows DPAPI and is never sent to GitHub or included in default logs. Do not delete it merely because Xray has stopped.
+
+If the app was killed, reopen it under the same Windows user. Recovery occurs before checking `xray.exe`. If current settings differ from both the recorded original and intended state, the app does not guess: use **Review / resolve** to compare values and explicitly restore the original or retain external settings. Treat those values as sensitive. If it cannot restore, it offers to keep the core running or force stop with the journal retained.
+
+If Windows remains stuck or the journal is unreadable, go to **Settings > Network & Internet > Proxy** and restore your previously known manual proxy, setup script and automatically detect settings. Do not indiscriminately disable a corporate or other pre-existing proxy. If you cannot recover the original settings, ask the network administrator. Only after manually verifying settings and closing every Xray Desktop copy, an unreadable journal may be moved to a private backup location to unblock future use; never treat that as an automatic restore. DPAPI-protected bytes are user-bound, not portable to another account. Use a private test account for the first native proxy-write tests.
 
 ## Developers and CI
 
@@ -32,17 +42,17 @@ $env:XRAY_TEST_CORE = 'C:\trusted-xray\xray.exe'
 pwsh -NoProfile -File ./scripts/Build.ps1
 ```
 
-This optional test uses a temporary direct-only configuration with a dynamically allocated loopback port; it makes no external network requests and never changes Windows proxy settings. Absence of the core is explicitly reported as skipped. A skipped test is not acceptance evidence. The synthetic child and TCP owner tests run regardless. Outputs:
+This optional test uses a temporary direct-only configuration with a dynamically allocated loopback port; it makes no external network requests and never changes Windows proxy settings. Absence of the core is explicitly reported as skipped. A skipped test is not acceptance evidence. The synthetic child and TCP owner tests run regardless. Phase 2 adds simulated proxy-transaction tests, a real Windows DPAPI round trip in a temporary directory, a native layout check, and a local synthetic CONNECT rejection test. They do not deliberately mutate the Windows proxy. Optional `XRAY_TEST_WININET_READ=1` runs a read-only query without printing values; it is separate from the native write/restore gate in a disposable interactive Windows account. Outputs:
 
 ```text
-artifacts/phase1/dist/
-  XrayDesktop-0.1.0-preview.1-win-x64.zip
-  XrayDesktop-0.1.0-preview.1-win-x64.zip.sha256
+artifacts/phase2/dist/
+  XrayDesktop-0.1.0-preview.2-win-x64.zip
+  XrayDesktop-0.1.0-preview.2-win-x64.zip.sha256
 ```
 
 ## Repository
 
-- `src/XrayDesktop/`: WinForms, profile storage, core/session management, Windows job and TCP-owner APIs.
+- `src/XrayDesktop/`: WinForms, profile storage, core/session management, Windows job, TCP-owner, WinINet and DPAPI APIs.
 - `tests/XrayDesktop.Checks/`: dependency-free console checks.
 - `scripts/`: build, packaging and published-EXE tests.
 - `examples/`: synthetic configuration only.
