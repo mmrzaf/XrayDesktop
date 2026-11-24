@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using XrayDesktop.App;
 using XrayDesktop.Config;
 using XrayDesktop.Core;
@@ -31,6 +32,7 @@ internal sealed partial class MainForm : Form
     private readonly Label nextStep = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label proxyHint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(780, 0) };
     private readonly Label details = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
+    private readonly Label profileSummary = new() { AutoSize = true, MaximumSize = new Size(780, 0), ForeColor = SystemColors.GrayText };
     private readonly Label warnings = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label validationStatus = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly TextBox validationOutput = new() { Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both, Dock = DockStyle.Top, Height = 110, Visible = false, Font = new Font(FontFamily.GenericMonospace, 9) };
@@ -41,6 +43,7 @@ internal sealed partial class MainForm : Form
     private readonly TabPage diagnosticTab = new("Diagnostics");
     private readonly ToolTip tips = new() { AutoPopDelay = 15000, InitialDelay = 400, ReshowDelay = 100, ShowAlways = true };
     private string? lastError;
+    private IPEndPoint[] tcpListeners = [];
     private readonly TextBox logs = new() { Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 9) };
     private readonly FlowLayoutPanel profileBar = Bar(), endpointBar = Bar(), coreBar = Bar(), logBar = Bar(), settingsBar = Bar();
     private readonly Button manual = new() { Text = "Manual endpoint", AutoSize = true };
@@ -99,9 +102,12 @@ internal sealed partial class MainForm : Form
         Add(profileBar, "Reload", InspectAsync, "Reload");
         Add(profileBar, "Remove reference", RemoveAsync, "Remove");
         endpointBar.Controls.Add(new Label { Text = "Listener to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints); endpointBar.Controls.Add(manual);
-        Add(endpointBar, "Copy address", _ => CopyListenerAddress(), "Copy listener");        manual.Click += async (_, _) => await RunAsync(_ => { SelectManualEndpoint(); return Task.CompletedTask; });
+        Add(endpointBar, "Copy address", _ => CopyListenerAddress(), "Copy listener");
+        Add(endpointBar, "Use free port…", FixPortAsync, "Use free port");
+        manual.Click += async (_, _) => await RunAsync(_ => { SelectManualEndpoint(); return Task.CompletedTask; });
         Add(coreBar, "Check core", CheckAsync, "Check core");
         Add(coreBar, "Validate configuration", ValidateAsync, "Validate");
+        Add(coreBar, "Run local checks", RunLocalChecksAsync, "Run local checks");
         Add(coreBar, "Start Xray", StartAsync, "Start", primary: true);
         Add(coreBar, "Stop Xray", async _ => { await StopCoreAsync(); }, "Stop");
         Add(coreBar, "Restart Xray", async token => { if (await StopCoreAsync()) await StartAsync(token); }, "Restart");
@@ -111,6 +117,7 @@ internal sealed partial class MainForm : Form
         var addHttp = Add(proxyBar, "Add HTTP listener…", AddHttpListenerAsync, "Add HTTP listener");
         tips.SetToolTip(addHttp, "Create a managed copy with a local HTTP listener so Windows system proxy can be enabled. The original profile is not changed.");
         proxyBar.Controls.Add(enableOnStart);
+        Add(logBar, "Find…", _ => { FindLog(); return Task.CompletedTask; }, "Find logs");
         Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; }, "Clear logs");
         Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; }, "Copy raw logs");
         Add(logBar, "Save raw logs…", SaveRawLogsAsync, "Save raw logs");
@@ -118,7 +125,8 @@ internal sealed partial class MainForm : Form
 
         var connectionTab = new TabPage("Start");
         AddScrollablePage(connectionTab, [
-            Section("1. Choose a configuration", profileBar, details, warnings),
+            Section("1. Choose a configuration", profileBar, details, profileSummary, warnings,
+                Hint("Tip: drag a .json or .jsonc file onto this window to import it.")),
             Section("2. Choose the listener to verify (optional)", endpointBar,
                 Hint("Pick the local HTTP or SOCKS port Xray will open. Choose None for a local-only run. An HTTP listener is required only if you plan to enable the Windows system proxy.")),
             Section("3. Validate and run Xray",
@@ -133,7 +141,8 @@ internal sealed partial class MainForm : Form
         Add(settingsBar, "Reset preferences", ResetDesktopAsync, "Reset preferences");
         Add(settingsBar, "Clear profile list", ClearProfilesAsync, "Clear profile list");
         AddScrollablePage(settingsTab, [new Label { Text = "Desktop preferences", AutoSize = true }, minimizeToTray, rememberWindow,
-            desktopNotice, settingsBar, new Label { Text = "Log auto-scroll is on the Logs tab; Save desktop preferences remembers it. Raw logs are in memory unless explicitly exported.\nProbe URLs and timeouts are saved on Diagnostics; enable-after-Start and network consent are session-only.\nClearing the profile list never deletes configuration files, logs on disk, or the proxy recovery journal.", AutoSize = true, Name = "settingsHelp" }]);
+            desktopNotice, settingsBar, new Label { Text = "Log auto-scroll is on the Logs tab; Save desktop preferences remembers it. Raw logs are in memory unless explicitly exported.\nProbe URLs and timeouts are saved on Diagnostics; enable-after-Start and network consent are session-only.\nClearing the profile list never deletes configuration files, logs on disk, or the proxy recovery journal.", AutoSize = true, Name = "settingsHelp" },
+            new Label { Text = "Shortcuts: Ctrl+O import, Ctrl+N new, Ctrl+E edit, Ctrl+R reload, F5 validate, F6 start/stop, F7 check core, F8 enable proxy, F9 restore proxy, Ctrl+F find logs, Ctrl+L Logs, Ctrl+D Diagnostics, Ctrl+, Settings. Drag a .json/.jsonc file onto the window to import it.", AutoSize = true, Name = "settingsShortcuts" }]);
         tabs.TabPages.AddRange([connectionTab, logTab, diagnosticTab, settingsTab]);
         content.Controls.Add(header, 0, 0); content.Controls.Add(errorPanel, 0, 1); content.Controls.Add(tabs, 0, 2);
         content.SizeChanged += (_, _) =>
@@ -150,6 +159,19 @@ internal sealed partial class MainForm : Form
         tips.SetToolTip(enableOnStart, "After a successful Start, ask before changing the Windows proxy.");
         tips.SetToolTip(endpoints, "The app verifies that this local port is owned by the Xray process it starts.");
         tips.SetToolTip(endpointBar.Controls.OfType<Button>().Single(button => button.Name == "Copy listener"), "Copy the selected SOCKS/HTTP host:port for use in another app.");
+        tips.SetToolTip(BarButton(profileBar, "Import"), "Import a .json or .jsonc configuration (Ctrl+O). You can also drag a file onto the window.");
+        tips.SetToolTip(BarButton(profileBar, "New"), "Create a new configuration file (Ctrl+N).");
+        tips.SetToolTip(BarButton(profileBar, "Edit"), "Edit the selected configuration (Ctrl+E).");
+        tips.SetToolTip(BarButton(profileBar, "Reload"), "Reload the selected configuration from disk (Ctrl+R).");
+        tips.SetToolTip(BarButton(coreBar, "Check core"), "Check the bundled xray.exe and its version (F7).");
+        tips.SetToolTip(BarButton(coreBar, "Validate"), "Ask Xray to validate the selected configuration (F5).");
+        tips.SetToolTip(BarButton(coreBar, "Run local checks"), "Check the core, validate the profile and run local diagnostics without sending test traffic.");
+        tips.SetToolTip(BarButton(coreBar, "Start"), "Start Xray without changing Windows proxy settings (F6).");
+        tips.SetToolTip(BarButton(coreBar, "Stop"), "Stop the owned Xray process and restore any managed proxy (F6).");
+        tips.SetToolTip(BarButton(proxyBar, "Enable system proxy"), "Run one approved HTTPS test, then enable the Windows LAN proxy (F8).");
+        tips.SetToolTip(BarButton(proxyBar, "Restore system proxy"), "Restore the recorded Windows proxy settings (F9).");
+        tips.SetToolTip(BarButton(logBar, "Find logs"), "Find text in the current log buffer (Ctrl+F).");
+        tips.SetToolTip(BarButton(endpointBar, "Use free port"), "Create a managed copy with the selected listener moved to a free port. The original profile is not changed.");
         diagnostics.RunRequested += async scope => await RunAsync(token => RunDiagnosticsAsync(scope, token));
         diagnostics.SavePreferencesRequested += async () => await RunAsync(SaveProbePreferencesAsync);
         diagnostics.ReportRequested += async () => await RunAsync(_ => { diagnostics.PreviewReport(); return Task.CompletedTask; });
@@ -190,6 +212,12 @@ internal sealed partial class MainForm : Form
             catch (Exception ex) { session.Log.Add("app", $"Session poll failed: {ex.Message}"); }
         };
         FormClosing += OnClosing;
+        AllowDrop = true;
+        DragEnter += (_, e) => { if (DroppedConfig(e.Data) is not null) e.Effect = DragDropEffects.Copy; };
+        DragDrop += async (_, e) => { if (DroppedConfig(e.Data) is { } path) await RunAsync(token => ImportFileAsync(path, token)); };
+        EnableConfigDrop(this);
+        KeyPreview = true;
+        KeyDown += OnShortcut;
 
         Render();
     }
@@ -221,6 +249,83 @@ internal sealed partial class MainForm : Form
         button.Click += async (_, _) => await RunAsync(command);
         bar.Controls.Add(button);
         return button;
+    }
+    private static Button BarButton(FlowLayoutPanel bar, string name) => bar.Controls.OfType<Button>().Single(button => button.Name == name);
+    private static string? DroppedConfig(IDataObject? data)
+    {
+        if (data?.GetData(DataFormats.FileDrop) is not string[] files) return null;
+        return files.FirstOrDefault(path => File.Exists(path) &&
+            (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".jsonc", StringComparison.OrdinalIgnoreCase)));
+    }
+    private void EnableConfigDrop(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            if (child is not (TextBoxBase or ComboBox or NumericUpDown))
+            {
+                child.AllowDrop = true;
+                child.DragEnter += (_, e) => { if (DroppedConfig(e.Data) is not null) e.Effect = DragDropEffects.Copy; };
+                child.DragDrop += async (_, e) => { if (DroppedConfig(e.Data) is { } path) await RunAsync(token => ImportFileAsync(path, token)); };
+            }
+            EnableConfigDrop(child);
+        }
+    }
+    private static Control? FocusedControl(Control parent)
+    {
+        if (parent.Focused) return parent;
+        foreach (Control child in parent.Controls)
+            if (FocusedControl(child) is { } found) return found;
+        return null;
+    }
+    private async void OnShortcut(object? sender, KeyEventArgs e)
+    {
+        var focused = FocusedControl(this);
+        if ((focused is TextBoxBase or ComboBox or NumericUpDown) && e.KeyData != (Keys.Control | Keys.F)) return;
+        switch (e.KeyData)
+        {
+            case Keys.Control | Keys.O: await RunAsync(ImportAsync); break;
+            case Keys.Control | Keys.N: await RunAsync(NewAsync); break;
+            case Keys.Control | Keys.E: await RunAsync(EditAsync); break;
+            case Keys.Control | Keys.R: await RunAsync(InspectAsync); break;
+            case Keys.F5: await RunAsync(ValidateAsync); break;
+            case Keys.F6:
+                if (session.HasChild) await RunAsync(async _ => { await StopCoreAsync(); });
+                else await RunAsync(StartAsync);
+                break;
+            case Keys.F7: await RunAsync(CheckAsync); break;
+            case Keys.F8: await RunAsync(EnableProxyAsync); break;
+            case Keys.F9: await RunAsync(_ => RestoreProxyAsync()); break;
+            case Keys.Control | Keys.F: FindLog(); break;
+            case Keys.Control | Keys.L: tabs.SelectedTab = logTab; break;
+            case Keys.Control | Keys.D: tabs.SelectedTab = diagnosticTab; break;
+            case Keys.Control | Keys.Oemcomma: tabs.SelectedTab = settingsTab; break;
+            default: return;
+        }
+        e.Handled = true; e.SuppressKeyPress = true;
+    }
+    private void FindLog()
+    {
+        using var dialog = new Form
+        {
+            Text = "Find in logs", AutoScaleDimensions = new SizeF(96, 96), AutoScaleMode = AutoScaleMode.Dpi,
+            StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false, Size = new Size(430, 160)
+        };
+        var box = new TextBox { Dock = DockStyle.Top, PlaceholderText = "Text to find" };
+        var next = new Button { Text = "Find next", AutoSize = true, DialogResult = DialogResult.OK };
+        var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel };
+        var bar = Bar(); bar.Dock = DockStyle.Bottom; bar.Controls.AddRange([next, close]);
+        dialog.Controls.Add(box); dialog.Controls.Add(bar); dialog.AcceptButton = next; dialog.CancelButton = close;
+        if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(box.Text)) return;
+        var start = Math.Min(logs.TextLength, logs.SelectionStart + logs.SelectionLength);
+        var index = logs.Text.IndexOf(box.Text, start, StringComparison.OrdinalIgnoreCase);
+        if (index < 0) index = logs.Text.IndexOf(box.Text, 0, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            MessageBox.Show(this, "Text not found in the current log buffer. The buffer is bounded, so older lines may have been removed.", "Find in logs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        logs.Select(index, box.Text.Length); logs.ScrollToCaret(); logs.Focus();
     }
     private async Task RunAsync(Func<CancellationToken, Task> command, bool quiet = false)
     {
@@ -293,13 +398,19 @@ internal sealed partial class MainForm : Form
     }
     private async Task ImportAsync(CancellationToken token)
     {
-        EnsureCapacity();
         using var dialog = new OpenFileDialog { Filter = "Xray configuration (*.json;*.jsonc)|*.json;*.jsonc|All files (*.*)|*.*", CheckFileExists = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        await ImportFileAsync(dialog.FileName, token);
+    }
+    private async Task ImportFileAsync(string path, CancellationToken token)
+    {
+        EnsureCapacity();
+        if (!File.Exists(path)) throw new FileNotFoundException("Configuration file not found.", path);
         var choice = MessageBox.Show(this, "Create a managed copy?\nYes: copy into app data. No: reference the original.\nRelative paths use the original directory; verify them before starting.", "Import", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
         if (choice == DialogResult.Cancel) return;
-        var profile = await Task.Run(() => store.Import(dialog.FileName, choice == DialogResult.Yes), token);
+        var profile = await Task.Run(() => store.Import(path, choice == DialogResult.Yes), token);
         settings.Profiles.Add(profile); RefreshProfiles(profile.Id); await PersistAsync(); await InspectAsync(token);
+        session.Log.Add("app", $"Imported profile '{profile.Name}' from {profile.Path}.");
     }
     private async Task NewAsync(CancellationToken token)
     {
@@ -340,26 +451,32 @@ internal sealed partial class MainForm : Form
         validationStatus.ForeColor = SystemColors.ControlText;
         validationOutput.Text = ""; validationOutput.Visible = false;
         diagnostics.SetTargets([]);
-        if (Selected is not { } profile) { details.Text = "Select or import a raw Xray JSON configuration."; return; }
-        details.Text = profile.Path;
+        if (Selected is not { } profile) { details.Text = "Select or import a raw Xray JSON configuration."; profileSummary.Text = ""; return; }
+        details.Text = profile.Path; profileSummary.Text = "";
         try
         {
             var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
+            var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            details.Text = $"{profile.Path}\nWorking directory: {profile.WorkingDirectory}\n{bytes.Length:N0} bytes · SHA-256 {hash[..16]}…";
             var inspection = await Task.Run(() => ConfigInspector.Inspect(bytes), token);
             diagnostics.SetTargets(await Task.Run(() => RemoteDiscovery.Discover(bytes), token));
             foreach (var endpoint in inspection.Endpoints) endpoints.Items.Add(endpoint);
             if (previous is not null && inspection.Endpoints.Contains(previous)) endpoints.SelectedItem = previous;
             else if (inspection.Endpoints.Count == 1) endpoints.SelectedIndex = 1;
-            var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
+            tcpListeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
             var portsInUse = inspection.Endpoints
-                .Where(endpoint => listeners.Any(listener => listener.Port == endpoint.Port &&
-                    (listener.Address.Equals(endpoint.Address) || listener.Address.Equals(IPAddress.Any) || listener.Address.Equals(IPAddress.IPv6Any))))
+                .Where(endpoint => PortInUse(endpoint, tcpListeners))
                 .Select(endpoint => endpoint.Port).Distinct().Order().ToArray();
             var warningLines = new List<string>();
             if (portsInUse.Length > 0)
                 warningLines.Add($"Port {string.Join(", ", portsInUse)} already has a TCP listener; Start may fail. Change the port or stop the other app.");
             warningLines.AddRange(inspection.Warnings);
             warnings.Text = string.Join(" ", warningLines.Take(6));
+            var listenerText = inspection.Endpoints.Count == 0
+                ? "none verifiable"
+                : string.Join(", ", inspection.Endpoints.Select(endpoint => $"{endpoint.Protocol.ToUpperInvariant()} {endpoint.Tag} {EndpointAddress(endpoint)}"));
+            var outbounds = inspection.Outbounds is { Count: > 0 } declared ? string.Join(", ", declared) : "none declared";
+            profileSummary.Text = $"Listeners: {listenerText}\nOutbounds: {outbounds} · Routing rules: {inspection.RuleCount}";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { warnings.Text = ex.Message; }
     }
@@ -422,6 +539,18 @@ internal sealed partial class MainForm : Form
     private static string ValidationSummary(CommandResult result) => result.ExitCode == 0
         ? $"Configuration is valid. Xray completed validation in {result.Elapsed.TotalMilliseconds:0} ms."
         : $"Xray rejected the configuration (exit {result.ExitCode}) after {result.Elapsed.TotalMilliseconds:0} ms. The validation output is shown on the Start tab and in Logs.";
+    private async Task RunLocalChecksAsync(CancellationToken token)
+    {
+        await CheckAsync(token);
+        if (Selected is { } profile)
+        {
+            var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
+            var result = await Task.Run(() => session.ValidateAsync(bytes, profile.WorkingDirectory, token), token);
+            ShowValidation(result);
+        }
+        tabs.SelectedTab = diagnosticTab;
+        await RunDiagnosticsAsync(DiagnosticScope.Local, token);
+    }
     private async Task StartAsync(CancellationToken token)
     {
         if (await Task.Run(() => proxy.HasPending, token)) throw new InvalidOperationException("Resolve pending proxy recovery before starting another core.");
@@ -436,16 +565,18 @@ internal sealed partial class MainForm : Form
         if (enableOnStart.Checked && session.CanProbeHttp) await EnableProxyAsync(token);
         else if (enableOnStart.Checked) session.Log.Add("proxy", "Automatic enable skipped: no eligible HTTP listener selected.");
     }
-    private static int FindFreeLoopbackPort()
+    private static int FindFreeLoopbackPort(IEnumerable<int>? avoidPorts = null)
     {
+        var avoid = avoidPorts is null ? new HashSet<int>() : new HashSet<int>(avoidPorts);
         var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
-        for (var port = 10809; port <= 10999; port++)
-            if (listeners.All(listener => listener.Port != port) && CanListen(port)) return port;
+        for (var port = 10809; port <= 11999; port++)
+            if (!avoid.Contains(port) && listeners.All(listener => listener.Port != port) && CanListen(port)) return port;
         using var probe = new TcpListener(IPAddress.Loopback, 0);
         probe.Start();
         var fallback = ((IPEndPoint)probe.LocalEndpoint).Port;
         probe.Stop();
-        return fallback;
+        if (!avoid.Contains(fallback) && listeners.All(listener => listener.Port != fallback)) return fallback;
+        throw new InvalidOperationException("Could not find a free loopback port. Close other proxy apps or choose a manual endpoint.");
         static bool CanListen(int port)
         {
             try
@@ -458,12 +589,48 @@ internal sealed partial class MainForm : Form
             catch (SocketException) { return false; }
         }
     }
+    private static bool PortInUse(Inbound endpoint, IReadOnlyCollection<IPEndPoint> listeners) =>
+        listeners.Any(listener => listener.Port == endpoint.Port &&
+            (listener.Address.Equals(endpoint.Address) || listener.Address.Equals(IPAddress.Any) || listener.Address.Equals(IPAddress.IPv6Any)));
+    private async Task FixPortAsync(CancellationToken token)
+    {
+        var profile = RequireProfile();
+        if (endpoints.SelectedItem is not Inbound endpoint)
+            throw new InvalidOperationException("Select a listener before choosing a free port.");
+        if (!PortInUse(endpoint, tcpListeners))
+        {
+            MessageBox.Show(this, $"{EndpointAddress(endpoint)} is not currently used by another TCP listener.", "Use free port", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var port = FindFreeLoopbackPort(endpoints.Items.OfType<Inbound>().Select(candidate => candidate.Port));
+        if (MessageBox.Show(this,
+            $"Create a managed copy with the selected {endpoint.Protocol.ToUpperInvariant()} listener moved to 127.0.0.1:{port}?\n\n" +
+            "• The original profile is not modified.\n" +
+            "• The copy uses normalized JSON, so comments and formatting may be lost.\n" +
+            "• Apps using the old port must be pointed at the new one.\n" +
+            "• Xray validates the generated copy before it is saved.",
+            "Use free port", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
+        var updated = ConfigUpgrade.UsePort(bytes, endpoint, port);
+        var result = await Task.Run(() => session.ValidateAsync(updated, profile.WorkingDirectory, token), token);
+        if (result.ExitCode != 0)
+        {
+            ShowValidation(result);
+            throw new InvalidOperationException($"Xray rejected the generated configuration (exit {result.ExitCode}). The original profile was not changed.");
+        }
+        var created = await Task.Run(() => store.Create($"{profile.Name} (port {port})", updated, profile.WorkingDirectory), token);
+        settings.Profiles.Add(created); RefreshProfiles(created.Id); await PersistAsync(); await InspectAsync(token);
+        var moved = endpoints.Items.OfType<Inbound>().FirstOrDefault(candidate => candidate.Port == port && candidate.Protocol == endpoint.Protocol);
+        if (moved is not null) endpoints.SelectedItem = moved;
+        ShowValidation(result);
+        session.Log.Add("app", $"Created managed profile '{created.Name}' with {endpoint.Protocol.ToUpperInvariant()} listener 127.0.0.1:{port}. Original profile unchanged.");
+    }
     private async Task AddHttpListenerAsync(CancellationToken token)
     {
         var profile = RequireProfile();
         if (endpoints.Items.OfType<Inbound>().Any(endpoint => endpoint.Protocol == "http"))
             throw new InvalidOperationException("This profile already has an HTTP listener.");
-        var port = FindFreeLoopbackPort();
+        var port = FindFreeLoopbackPort(endpoints.Items.OfType<Inbound>().Select(endpoint => endpoint.Port));
         if (MessageBox.Show(this,
             $"Create a new managed profile with an HTTP listener on 127.0.0.1:{port}?\n\n" +
             "• The original profile is not modified.\n" +
@@ -500,6 +667,8 @@ internal sealed partial class MainForm : Form
         // Once the transaction starts, do not interrupt journal/write/rollback.
         await Task.Run(() => { token.ThrowIfCancellationRequested(); proxy.Acquire(original, endpoint, session.VerifyHttpOwner); });
         session.Log.Add("proxy", "Windows LAN proxy enabled after explicit HTTPS test and read-back verification.");
+        if (tray.Visible && (!Visible || WindowState == FormWindowState.Minimized))
+            tray.ShowBalloonTip(5000, "System proxy enabled", "Windows LAN proxy now points to the owned Xray listener. Stop Xray or Restore system proxy to undo it.", ToolTipIcon.Info);
     }
 
     private async Task RestoreProxyAsync()
@@ -525,6 +694,11 @@ internal sealed partial class MainForm : Form
         try { await RestoreProxyAsync(); }
         catch (Exception) { session.Log.Add("proxy", "Core exited; proxy recovery incomplete. Use Review / resolve or Windows Settings."); }
         finally { await Task.Run(session.PollAsync); }
+        if (tray.Visible)
+        {
+            var code = session.LastExitCode is { } exit ? $" (code {exit})" : "";
+            tray.ShowBalloonTip(6000, "Xray stopped unexpectedly", $"The owned Xray process exited{code}. Windows proxy settings were restored when possible.", ToolTipIcon.Warning);
+        }
     }
 
     private async Task ReviewProxyAsync()
@@ -567,6 +741,13 @@ internal sealed partial class MainForm : Form
         var created = await Task.Run(() => store.Import(path, false), token);
         settings.Profiles.Add(created); RefreshProfiles(created.Id); await PersistAsync(); await InspectAsync(token);
     }
+    private static string EndpointAddress(Inbound endpoint)
+    {
+        var host = endpoint.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? $"[{endpoint.Address}]"
+            : endpoint.Address.ToString();
+        return $"{host}:{endpoint.Port}";
+    }
     private Task CopyListenerAddress()
     {
         if (endpoints.SelectedItem is not Inbound endpoint)
@@ -574,10 +755,7 @@ internal sealed partial class MainForm : Form
             session.Log.Add("app", "Select a listener before copying its address.");
             return Task.CompletedTask;
         }
-        var host = endpoint.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
-            ? $"[{endpoint.Address}]"
-            : endpoint.Address.ToString();
-        var address = $"{host}:{endpoint.Port}";
+        var address = EndpointAddress(endpoint);
         Clipboard.SetText(address);
         session.Log.Add("app", $"Copied {endpoint.Protocol.ToUpperInvariant()} listener address {address}.");
         return Task.CompletedTask;
@@ -614,6 +792,8 @@ internal sealed partial class MainForm : Form
         foreach (Control control in endpointBar.Controls)
             if (control.Name == "Copy listener")
                 control.Enabled = !closing && endpoints.SelectedItem is Inbound;
+            else if (control.Name == "Use free port")
+                control.Enabled = !busy && !running && !closing && endpoints.SelectedItem is Inbound endpoint && PortInUse(endpoint, tcpListeners);
         foreach (Control control in coreBar.Controls) control.Enabled = !busy && !closing && (control.Name switch { "Stop" or "Restart" => running, "Check core" => !running, _ => !running && Selected is not null });
         var currentProxy = proxy.Status;
         proxyStatus.Text = $"Windows LAN proxy: {currentProxy.State} — {currentProxy.Detail}";
@@ -649,6 +829,7 @@ internal sealed partial class MainForm : Form
         trayStop.Enabled = CommandEnabled(coreBar, "Stop");
         trayEnable.Enabled = CommandEnabled(proxyBar, "Enable system proxy");
         trayRestore.Enabled = CommandEnabled(proxyBar, "Restore system proxy");
+        trayChecks.Enabled = !busy && !closing && Selected is not null;
         trayExit.Enabled = !busy && !closing;
         var tooltip = $"Xray Desktop | {session.State} | Proxy: {currentProxy.State}";
         if (tray.Text != tooltip) tray.Text = tooltip;
@@ -782,5 +963,7 @@ internal sealed partial class MainForm : Form
             message += " Move the portable folder to a writable private location, or close the app using the file.";
         lastError = message;
         session.Log.Add("error", ex.ToString());
+        if (tray.Visible && (!Visible || WindowState == FormWindowState.Minimized))
+            tray.ShowBalloonTip(5000, "Xray Desktop needs attention", message, ToolTipIcon.Error);
     }
 }

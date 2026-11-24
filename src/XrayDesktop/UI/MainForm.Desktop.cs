@@ -17,7 +17,8 @@ internal sealed partial class MainForm
     private readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Text = Bootstrap.ProductName };
     private readonly ContextMenuStrip trayMenu = new();
     private readonly ToolStripMenuItem trayShow = new("Show window"), trayStart = new("Start Xray"), trayStop = new("Stop Xray"),
-        trayEnable = new("Enable system proxy"), trayRestore = new("Restore system proxy"), trayExit = new("Exit (restore and stop)");
+        trayEnable = new("Enable system proxy"), trayRestore = new("Restore system proxy"), trayChecks = new("Run local checks"),
+        trayExit = new("Exit (restore and stop)");
     private FormWindowState lastVisibleState = FormWindowState.Normal;
     private bool initialized;
     private bool desktopDisposed;
@@ -50,7 +51,7 @@ internal sealed partial class MainForm
 
     private void ConfigureTray()
     {
-        trayMenu.Items.AddRange([trayShow, new ToolStripSeparator(), trayStart, trayStop, trayEnable, trayRestore, new ToolStripSeparator(), trayExit]);
+        trayMenu.Items.AddRange([trayShow, new ToolStripSeparator(), trayStart, trayStop, trayEnable, trayRestore, trayChecks, new ToolStripSeparator(), trayExit]);
         tray.ContextMenuStrip = trayMenu;
         tray.DoubleClick += (_, _) => ShowWindow();
         trayShow.Click += (_, _) => ShowWindow();
@@ -58,6 +59,7 @@ internal sealed partial class MainForm
         trayStop.Click += async (_, _) => await RunTrayAsync(async _ => { await StopCoreAsync(); });
         trayEnable.Click += async (_, _) => await RunTrayAsync(EnableProxyAsync);
         trayRestore.Click += async (_, _) => await RunTrayAsync(_ => RestoreProxyAsync());
+        trayChecks.Click += async (_, _) => await RunTrayAsync(RunLocalChecksAsync);
         trayExit.Click += (_, _) => { if (!busy && !closing) { ShowWindow(); Close(); } };
     }
     private static bool CommandEnabled(FlowLayoutPanel bar, string name) => bar.Controls.OfType<Button>().Any(button => button.Name == name && button.Enabled);

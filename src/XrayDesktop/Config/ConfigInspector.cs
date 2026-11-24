@@ -7,7 +7,8 @@ internal sealed record Inbound(string Tag, string Protocol, IPAddress Address, i
 {
     public override string ToString() => $"{Protocol.ToUpperInvariant()} {Tag} — {(Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{Address}]" : Address.ToString())}:{Port}{(Authenticated ? " (auth/unknown)" : "")}";
 }
-internal sealed record Inspection(IReadOnlyList<Inbound> Endpoints, IReadOnlyList<string> Warnings, bool HasTun = false);
+internal sealed record Inspection(IReadOnlyList<Inbound> Endpoints, IReadOnlyList<string> Warnings, bool HasTun = false,
+    IReadOnlyList<string>? Outbounds = null, int RuleCount = 0);
 
 internal static class ConfigInspector
 {
@@ -15,6 +16,8 @@ internal static class ConfigInspector
     {
         List<Inbound> endpoints = [];
         List<string> warnings = [];
+        IReadOnlyList<string> outbounds = [];
+        var ruleCount = 0;
         var hasTun = false;
         try
         {
@@ -24,8 +27,10 @@ internal static class ConfigInspector
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || HasDuplicates(root))
                 return new([], ["Root is not an unambiguous JSON object; use native validation."]);
-            if (!root.TryGetProperty("inbounds", out var array)) return new([], ["No inbounds declared."]);
-            if (array.ValueKind != JsonValueKind.Array) return new([], ["inbounds is not an array."]);
+            outbounds = ReadOutbounds(root);
+            ruleCount = ReadRuleCount(root);
+            if (!root.TryGetProperty("inbounds", out var array)) return new([], ["No inbounds declared."], false, outbounds, ruleCount);
+            if (array.ValueKind != JsonValueKind.Array) return new([], ["inbounds is not an array."], false, outbounds, ruleCount);
             foreach (var item in array.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.Object || HasDuplicates(item)) { warnings.Add("Ambiguous inbound ignored."); continue; }
@@ -48,8 +53,25 @@ internal static class ConfigInspector
             { warnings.Add("Duplicate local endpoints omitted."); endpoints = endpoints.GroupBy(e => (e.Address, e.Port)).Where(g => g.Count() == 1).Select(g => g.Single()).ToList(); }
         }
         catch (JsonException) { warnings.Add("JSON inspection failed; Xray validation is authoritative."); }
-        return new(endpoints, warnings, hasTun);
+        return new(endpoints, warnings, hasTun, outbounds, ruleCount);
     }
+
+    private static IReadOnlyList<string> ReadOutbounds(JsonElement root)
+    {
+        var result = new List<string>();
+        if (!root.TryGetProperty("outbounds", out var array) || array.ValueKind != JsonValueKind.Array) return result;
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var name = ReadString(item, "tag") ?? ReadString(item, "protocol") ?? "unnamed";
+            if (!result.Contains(name, StringComparer.Ordinal)) result.Add(name);
+            if (result.Count >= 12) break;
+        }
+        return result;
+    }
+    private static int ReadRuleCount(JsonElement root) =>
+        root.TryGetProperty("routing", out var routing) && routing.ValueKind == JsonValueKind.Object &&
+        routing.TryGetProperty("rules", out var rules) && rules.ValueKind == JsonValueKind.Array ? rules.GetArrayLength() : 0;
 
     private static bool OptionalStringIs(JsonElement obj, string key, params string[] allowed) => !obj.TryGetProperty(key, out var value) || (value.ValueKind == JsonValueKind.String && value.GetString() is string name && allowed.Contains(name));
     private static bool HasDuplicates(JsonElement obj) => obj.EnumerateObject().GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1);
