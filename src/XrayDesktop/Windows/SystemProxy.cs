@@ -9,6 +9,14 @@ namespace XrayDesktop.Windows;
 internal sealed record ProxySettings(uint Flags, string Server, string Bypass, string Pac)
 {
     internal const uint Direct = 1, Manual = 2, AutoUrl = 4, AutoDetect = 8;
+    internal const string ManagedBypass = "<local>;localhost;127.0.0.1;[::1]";
+    internal static bool IsManagedServer(string server)
+    {
+        var prefix = server.StartsWith("127.0.0.1:", StringComparison.Ordinal) ? "127.0.0.1:" :
+            server.StartsWith("[::1]:", StringComparison.Ordinal) ? "[::1]:" : null;
+        return prefix is not null && int.TryParse(server.AsSpan(prefix.Length), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var port) &&
+            port is >= 1 and <= 65535 && server == prefix + port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
     internal bool External => (Flags & (Manual | AutoUrl | AutoDetect)) != 0;
     internal void Validate()
     {

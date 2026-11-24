@@ -66,8 +66,8 @@ internal sealed class ProxyRecovery(string directory, string userSid) : IProxyJo
         if (journal.Version != 1 || journal.Id == Guid.Empty || journal.UserSid != UserSid || journal.CreatedUtc == default || journal.Stage != "prepared" || journal.Original is null || journal.Applied is null || journal.Original == journal.Applied)
             throw new InvalidDataException("Unsupported or invalid proxy recovery journal.");
         journal.Original.Validate(); journal.Applied.Validate();
-        if (journal.Applied.Flags != (ProxySettings.Direct | ProxySettings.Manual) || journal.Applied.Bypass != "<local>;localhost;127.0.0.1;[::1]" || journal.Applied.Pac != journal.Original.Pac ||
-            !Uri.TryCreate("http://" + journal.Applied.Server, UriKind.Absolute, out var uri) || !uri.IsLoopback || uri.UserInfo.Length != 0 || uri.AbsolutePath != "/" || uri.Query.Length != 0 || uri.Fragment.Length != 0 || uri.Port is < 1 or > 65535 || journal.Applied.Server != $"{uri.Host}:{uri.Port}")
+        if (journal.Applied.Flags != (ProxySettings.Direct | ProxySettings.Manual) || journal.Applied.Bypass != ProxySettings.ManagedBypass || journal.Applied.Pac != journal.Original.Pac ||
+            !ProxySettings.IsManagedServer(journal.Applied.Server))
             throw new InvalidDataException("Recovery journal has an unsupported managed endpoint.");
     }
 }

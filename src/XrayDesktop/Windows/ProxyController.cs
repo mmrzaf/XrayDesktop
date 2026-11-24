@@ -37,9 +37,16 @@ internal sealed class ProxyController(ISystemProxy system, IProxyJournalStore st
         }
     }
 
+    internal ProxySettings PrepareAcquire()
+    {
+        if (store.Load() is not null) throw new InvalidOperationException("Resolve the pending proxy recovery first.");
+        system.EnsureWritable();
+        return system.Read();
+    }
+
     internal void Acquire(ProxySettings reviewed, Inbound endpoint, Action verifyOwner)
     {
-        if (endpoint.Protocol != "http" || (!endpoint.Manual && endpoint.Authenticated) || !System.Net.IPAddress.IsLoopback(endpoint.Address) || endpoint.Port is < 1 or > 65535)
+        if (endpoint.Protocol != "http" || (!endpoint.Manual && endpoint.Authenticated) || (!endpoint.Address.Equals(System.Net.IPAddress.Loopback) && !endpoint.Address.Equals(System.Net.IPAddress.IPv6Loopback)) || endpoint.Port is < 1 or > 65535)
             throw new InvalidOperationException("A verified unauthenticated HTTP loopback endpoint is required.");
         try
         {
@@ -48,15 +55,17 @@ internal sealed class ProxyController(ISystemProxy system, IProxyJournalStore st
             if (system.Read() != reviewed) throw new InvalidOperationException("Proxy settings changed since review; inspect and try again.");
             reviewed.Validate();
             var host = endpoint.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{endpoint.Address}]" : endpoint.Address.ToString();
-            var applied = new ProxySettings(ProxySettings.Direct | ProxySettings.Manual, $"{host}:{endpoint.Port}", "<local>;localhost;127.0.0.1;[::1]", reviewed.Pac);
+            var applied = new ProxySettings(ProxySettings.Direct | ProxySettings.Manual, host + ":" + endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture), ProxySettings.ManagedBypass, reviewed.Pac);
             if (applied == reviewed) throw new InvalidOperationException("An identical external proxy already exists; it cannot be claimed as ours.");
             verifyOwner();
             var journal = new ProxyJournal(1, Guid.NewGuid(), store.UserSid, DateTimeOffset.UtcNow, reviewed, applied, "prepared");
             store.Create(journal); // durable intent before any OS mutation
+            var writeAttempted = false;
             try
             {
                 if (system.Read() != reviewed) throw new InvalidOperationException("Windows proxy changed during preparation.");
                 verifyOwner();
+                writeAttempted = true;
                 system.Write(applied);
                 system.Refresh();
                 if (system.Read() != applied) throw new InvalidOperationException("Windows did not return the intended proxy settings.");
@@ -67,7 +76,7 @@ internal sealed class ProxyController(ISystemProxy system, IProxyJournalStore st
             {
                 // Restore only exact original/applied values. Mixed or external state
                 // remains journaled; a failed write is not proof of ownership.
-                try { Restore(); } catch (Exception) { /* Inspect exposes retained recovery. */ }
+                try { if (writeAttempted) Restore(); else store.Delete(); } catch (Exception) { /* Inspect exposes retained recovery. */ }
                 throw;
             }
         }
