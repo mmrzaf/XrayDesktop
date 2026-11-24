@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Net.Security;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -258,31 +259,89 @@ internal static class PhaseThreeChecks
     private static async Task RejectUntrustedTls()
     {
         using var origin = new TcpListener(IPAddress.Loopback, 0); origin.Start();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var rsa = RSA.Create(2048);
         var certificateRequest = new CertificateRequest("CN=local-fixture", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         var names = new SubjectAlternativeNameBuilder(); names.AddIpAddress(IPAddress.Loopback);
         certificateRequest.CertificateExtensions.Add(names.Build());
-        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
-        var request = NetworkProbes.HttpsAsync(new($"https://127.0.0.1:{Port(origin)}/"), null, timeout.Token);
-        try
+        certificateRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
+        certificateRequest.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, false));
+        using var generated = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        // Schannel needs a usable Windows key container. Reimport the generated PFX
+        // into the user key set (not EphemeralKeySet or PersistKeySet). Disposal
+        // releases the temporary key; no certificate is added to a trust store.
+        var password = Guid.NewGuid().ToString("N");
+        var pfx = generated.Export(X509ContentType.Pkcs12, password);
+        using var certificate = LoadTlsCertificate(pfx, password);
+        var context = SslStreamCertificateContext.Create(certificate, null, offline: true);
+        var port = Port(origin);
+
+        // Positive control: prove the fixture can complete TLS with this exact
+        // certificate before asking the production client to reject its trust chain.
+        // This pin is strictly local to the test control, never the production handler.
+        using (var controlTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
         {
-            using var client = await origin.AcceptTcpClientAsync(timeout.Token);
-            using var ssl = new SslStream(client.GetStream());
-            var handshake = ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate }, timeout.Token);
+            var server = ServeTlsHandshakeAsync(origin, context, false, controlTimeout.Token);
             try
             {
-                try { await request; }
-                catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.SecureConnectionError) { return; }
-                throw new InvalidOperationException("Expected untrusted certificate rejection.");
+                using var client = new TcpClient();
+                await client.ConnectAsync(IPAddress.Loopback, port, controlTimeout.Token);
+                using var ssl = new SslStream(client.GetStream(), false, (_, peer, _, errors) =>
+                    peer is not null && peer.GetRawCertData().AsSpan().SequenceEqual(certificate.RawData) &&
+                    (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) == SslPolicyErrors.None);
+                await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                {
+                    TargetHost = IPAddress.Loopback.ToString(), EnabledSslProtocols = SslProtocols.Tls12
+                }, controlTimeout.Token);
+                Assert(ssl.IsAuthenticated);
+                await server;
             }
             finally
             {
-                await timeout.CancelAsync();
-                try { await handshake; } catch (Exception) { /* The peer intentionally rejects the certificate. */ }
+                await controlTimeout.CancelAsync();
+                try { await server; } catch (OperationCanceledException) when (controlTimeout.IsCancellationRequested) { }
             }
         }
-        finally { await timeout.CancelAsync(); await Observe(request); }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var rejectionServer = ServeTlsHandshakeAsync(origin, context, true, timeout.Token);
+        try
+        {
+            try { await NetworkProbes.HttpsAsync(new($"https://127.0.0.1:{port}/"), null, timeout.Token); }
+            catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.SecureConnectionError)
+            {
+                await rejectionServer;
+                return;
+            }
+            throw new InvalidOperationException("Expected untrusted certificate rejection.");
+        }
+        finally
+        {
+            await timeout.CancelAsync();
+            try { await rejectionServer; } catch (OperationCanceledException) when (timeout.IsCancellationRequested) { }
+        }
+    }
+
+    private static X509Certificate2 LoadTlsCertificate(byte[] pfx, string password)
+    {
+        try { return X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.UserKeySet); }
+        finally { CryptographicOperations.ZeroMemory(pfx); }
+    }
+
+    private static async Task ServeTlsHandshakeAsync(TcpListener origin, SslStreamCertificateContext context, bool expectPeerRejection, CancellationToken token)
+    {
+        using var client = await origin.AcceptTcpClientAsync(token);
+        using var ssl = new SslStream(client.GetStream());
+        try
+        {
+            await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            {
+                ServerCertificateContext = context, EnabledSslProtocols = SslProtocols.Tls12
+            }, token);
+        }
+        catch (AuthenticationException) when (expectPeerRejection) { /* The negative control rejects the certificate. */ }
+        catch (IOException) when (expectPeerRejection) { /* The negative control may close the transport on rejection. */ }
+        // Dispose on either success or failure, rather than holding the socket open
+        // while the client awaits a TLS response that the server failed to produce.
     }
     private static async Task ExpectHttpFailure(Task<int> request)
     {
