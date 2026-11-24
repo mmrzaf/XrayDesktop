@@ -1,6 +1,7 @@
 using System.Net;
 using XrayDesktop.App;
 using XrayDesktop.Config;
+using XrayDesktop.Diagnostics;
 using XrayDesktop.Windows;
 
 namespace XrayDesktop.UI;
@@ -9,6 +10,9 @@ internal sealed class MainForm : Form
 {
     private readonly ProfileStore store = new(Path.Combine(AppContext.BaseDirectory, "data"));
     private readonly SessionController session = new(AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, "data"));
+    private readonly DiagnosticsPanel diagnostics = new();
+    private readonly DiagnosticRunner diagnosticRunner = new(AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, "data"));
+    private bool diagnosing;
     private readonly ProxyController proxy = new(new SystemProxy(), ProxyRecovery.ForCurrentUser());
     private readonly FlowLayoutPanel proxyBar = Bar();
     private readonly Label proxyStatus = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
@@ -35,10 +39,10 @@ internal sealed class MainForm : Form
     {
         Text = $"{Bootstrap.ProductName} — {Bootstrap.Version}"; StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi; MinimumSize = new Size(850, 660); Size = new Size(1000, 760);
-        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 10 };
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, RowCount = 9 };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (var i = 0; i < 8; i++) content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        content.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         profileBar.Controls.Add(profiles);
         Add(profileBar, "Import", ImportAsync); Add(profileBar, "New", NewAsync); Add(profileBar, "Edit", EditAsync); Add(profileBar, "Save As", SaveAsAsync); Add(profileBar, "Remove reference", RemoveAsync); Add(profileBar, "Reload", InspectAsync);
         var endpointBar = Bar(); endpointBar.Controls.Add(new Label { Text = "Local endpoint to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints); endpointBar.Controls.Add(manual);
@@ -52,14 +56,18 @@ internal sealed class MainForm : Form
         proxyBar.Controls.Add(enableOnStart);
         Add(logBar, "Clear logs", _ => { session.Log.Clear(); logs.Clear(); displayedLines = 0; return Task.CompletedTask; }, gated: false);
         Add(logBar, "Copy raw logs", _ => { if (logs.TextLength > 0 && MessageBox.Show(this, "Raw logs may contain secrets, addresses and private paths. Copy anyway?", "Sensitive data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) Clipboard.SetText(logs.Text); return Task.CompletedTask; }, gated: false);
-        content.Controls.Add(status, 0, 0); content.Controls.Add(profileBar, 0, 1); content.Controls.Add(details, 0, 2); content.Controls.Add(endpointBar, 0, 3); content.Controls.Add(warnings, 0, 4); content.Controls.Add(commands, 0, 5); content.Controls.Add(proxyStatus, 0, 6); content.Controls.Add(proxyBar, 0, 7); content.Controls.Add(logs, 0, 8); content.Controls.Add(logBar, 0, 9);
+        content.Controls.Add(status, 0, 0); content.Controls.Add(profileBar, 0, 1); content.Controls.Add(details, 0, 2); content.Controls.Add(endpointBar, 0, 3); content.Controls.Add(warnings, 0, 4); content.Controls.Add(commands, 0, 5); content.Controls.Add(proxyStatus, 0, 6); content.Controls.Add(proxyBar, 0, 7); var tabs = new TabControl { Dock = DockStyle.Fill };
+        var logTab = new TabPage("Logs"); logBar.Dock = DockStyle.Bottom; logTab.Controls.Add(logs); logTab.Controls.Add(logBar);
+        var diagnosticTab = new TabPage("Diagnostics"); diagnosticTab.Controls.Add(diagnostics);
+        tabs.TabPages.Add(logTab); tabs.TabPages.Add(diagnosticTab); content.Controls.Add(tabs, 0, 8);
+        diagnostics.RunRequested += async scope => await RunAsync(token => RunDiagnosticsAsync(scope, token));
         Controls.Add(content);
         profiles.SelectedIndexChanged += async (_, _) => { if (!updating && !busy) await RunAsync(async token => { await PersistAsync(); await InspectAsync(token); }); };
         Shown += async (_, _) => { await RunAsync(InitializeAsync); timer.Start(); };
         timer.Tick += async (_, _) =>
         {
             Render();
-            if (busy || closing) return;
+            if (busy || closing) { if (diagnosing && session.ChildExited) operation?.Cancel(); return; }
             try
             {
                 if (session.ChildExited) await RunAsync(_ => HandleChildExitAsync(), quiet: true);
@@ -168,17 +176,39 @@ internal sealed class MainForm : Form
     private async Task InspectAsync(CancellationToken token)
     {
         var previous = endpoints.SelectedItem as Inbound; endpoints.Items.Clear(); endpoints.Items.Add("None (local-only)"); endpoints.SelectedIndex = 0; warnings.Text = "";
+        diagnostics.SetTargets([]);
         if (Selected is not { } profile) { details.Text = "Select or import a raw Xray JSON configuration."; return; }
         details.Text = profile.Path;
         try
         {
-            var inspection = await Task.Run(() => ConfigInspector.Inspect(ProfileStore.ReadConfig(profile.Path)), token);
+            var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
+            var inspection = await Task.Run(() => ConfigInspector.Inspect(bytes), token);
+            diagnostics.SetTargets(await Task.Run(() => RemoteDiscovery.Discover(bytes), token));
             foreach (var endpoint in inspection.Endpoints) endpoints.Items.Add(endpoint);
             if (previous is not null && inspection.Endpoints.Contains(previous)) endpoints.SelectedItem = previous;
             else if (inspection.Endpoints.Count == 1) endpoints.SelectedIndex = 1;
             warnings.Text = string.Join(" ", inspection.Warnings.Take(5));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { warnings.Text = ex.Message; }
+    }
+    private async Task RunDiagnosticsAsync(DiagnosticScope scope, CancellationToken token)
+    {
+        var options = diagnostics.ReadOptions();
+        var profile = Selected; var selected = endpoints.SelectedItem as Inbound;
+        diagnosing = true; diagnostics.BeginRun();
+        IReadOnlyList<DiagnosticResult>? rows = null;
+        try
+        {
+            var context = await Task.Run(() => session.CaptureDiagnostics(profile, selected, proxy.Inspect), token);
+            var progress = new Progress<DiagnosticResult>(diagnostics.AddResult);
+            rows = await Task.Run(() => diagnosticRunner.RunAsync(context, options, scope, progress, token), token);
+        }
+        finally
+        {
+            diagnostics.EndRun(rows); diagnosing = false;
+            // An exit during probes cancels them and restores immediately after the command completes.
+            if (session.ChildExited) await HandleChildExitAsync();
+        }
     }
     private Task CheckAsync(CancellationToken token) => Task.Run(() => session.CheckAsync(token), token);
     private async Task ValidateAsync(CancellationToken token)
@@ -204,10 +234,11 @@ internal sealed class MainForm : Form
         var endpoint = session.ActiveEndpoint ?? throw new InvalidOperationException("Start Xray with a selected HTTP loopback listener first.");
         await Task.Run(session.VerifyHttpOwner, token);
         var original = await Task.Run(proxy.PrepareAcquire, token);
+        var destination = diagnostics.HttpsDestination;
         var notice = original.External ? "Existing manual proxy or automatic configuration will be temporarily replaced. Select No and use Review / resolve to inspect the current settings first.\n\n" : "";
-        if (MessageBox.Show(this, notice + "Allow one HTTPS request to " + HttpProxyProbe.TestUri + " through the selected Xray HTTP listener? If it succeeds, Windows LAN proxy will be enabled.\n\nLocal/intranet hosts bypass the proxy. This is not a VPN.\nExisting settings will be journaled and restored on stop.", "Enable Windows proxy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        if (MessageBox.Show(this, notice + "Allow one HTTPS request to " + destination + " through the selected Xray HTTP listener? If it succeeds, Windows LAN proxy will be enabled.\n\nLocal/intranet hosts bypass the proxy. This is not a VPN.\nExisting settings will be journaled and restored on stop.", "Enable Windows proxy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
         await Task.Run(session.VerifyHttpOwner, token);
-        await Task.Run(() => HttpProxyProbe.VerifyAsync(endpoint, token), token);
+        await Task.Run(() => HttpProxyProbe.VerifyAsync(endpoint, destination, token), token);
         token.ThrowIfCancellationRequested();
         // Once the transaction starts, do not interrupt journal/write/rollback.
         await Task.Run(() => { token.ThrowIfCancellationRequested(); proxy.Acquire(original, endpoint, session.VerifyHttpOwner); });
@@ -317,6 +348,7 @@ internal sealed class MainForm : Form
             _ => !running
         });
         cancel.Enabled = busy && !closing;
+        diagnostics.SetBusy(busy || closing);
         var batch = session.Log.ReadAfter(logId); logId = batch.Id;
         if (batch.Lines.Length > 0)
         {
