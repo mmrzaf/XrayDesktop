@@ -21,6 +21,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
     internal CoreCheck? Version { get; private set; }
     internal int? Pid => child?.Id;
     internal bool HasChild => child is not null;
+    internal bool ChildExited => child?.HasExited == true;
     internal string Readiness { get; private set; } = "Not running";
     internal DateTimeOffset? Started { get; private set; }
     internal int? LastExitCode { get; private set; }
@@ -73,7 +74,7 @@ internal sealed class SessionController(string baseDirectory, string dataDirecto
             var result = await ValidateSnapshotAsync(snapshot, token).ConfigureAwait(false);
             if (result.ExitCode != 0) throw new InvalidOperationException("Xray rejected the configuration; inspect local logs.");
             var endpoints = snapshot.Inspection.Endpoints;
-            if (selected is not null && !endpoints.Contains(selected)) throw new InvalidOperationException("Selected endpoint no longer matches the saved configuration.");
+            if (selected is { Manual: false } && !endpoints.Contains(selected)) throw new InvalidOperationException("Selected endpoint no longer matches the saved configuration.");
             var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
             foreach (var endpoint in endpoints)
             {

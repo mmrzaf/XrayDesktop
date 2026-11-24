@@ -22,6 +22,8 @@ internal sealed class JobObject : IDisposable
     }
     public void Dispose() => handle.Dispose();
 
+    // Native layout fields are intentionally zero-initialized except for LimitFlags.
+#pragma warning disable CS0649
     [StructLayout(LayoutKind.Sequential)]
     private struct BasicLimits
     {
@@ -41,7 +43,8 @@ internal sealed class JobObject : IDisposable
         internal IoCounters Io;
         internal UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
     }
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+#pragma warning restore CS0649
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern SafeFileHandle CreateJobObjectW(IntPtr attributes, string? name);
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

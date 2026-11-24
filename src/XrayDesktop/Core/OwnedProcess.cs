@@ -24,7 +24,7 @@ internal sealed class OwnedProcess : IAsyncDisposable
             started = process.Start();
             if (!started) throw new InvalidOperationException("Could not start child process.");
             try { job.Assign(process); }
-            catch (System.ComponentModel.Win32Exception) when (process.HasExited) { /* Already exited; no live child to manage. */ }
+            catch (Exception ex) when ((ex is System.ComponentModel.Win32Exception or InvalidOperationException) && process.HasExited) { /* Already exited; no live child to manage. */ }
             stdout = DrainAsync(process.StandardOutput, "stdout", log);
             stderr = DrainAsync(process.StandardError, "stderr", log);
         }

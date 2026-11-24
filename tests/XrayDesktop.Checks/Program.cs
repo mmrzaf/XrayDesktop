@@ -4,8 +4,11 @@ namespace XrayDesktop.Checks;
 
 internal static class Program
 {
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.SequenceEqual(new[] { "--child-exit" })) { Console.WriteLine("test stdout"); Console.Error.WriteLine("test stderr"); return 7; }
+        if (args.SequenceEqual(new[] { "--child-wait" })) { Thread.Sleep(TimeSpan.FromMinutes(2)); return 0; }
+        if (args.Length != 0) return 2;
         var checks = new (string Name, Action Run)[]
         {
             ("No arguments selects desktop", () => Expect(StartupMode.Desktop, Bootstrap.ParseArguments([]))),
@@ -19,6 +22,7 @@ internal static class Program
             ("Headless self-test reports success", CheckSelfTest)
         };
 
+        checks = [.. checks, .. PhaseOneChecks.All];
         var failures = 0;
         foreach (var check in checks)
         {

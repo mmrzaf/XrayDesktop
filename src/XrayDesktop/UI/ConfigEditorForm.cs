@@ -23,6 +23,7 @@ internal sealed class ConfigEditorForm : Form
         Text = "Configuration editor (local plaintext)"; StartPosition = FormStartPosition.CenterParent;
         MinimumSize = new Size(640, 440); Size = new Size(850, 650); AutoScaleMode = AutoScaleMode.Dpi;
         editor.Text = initialText;
+        initialText = editor.Text;
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(8), WrapContents = true };
         Add(bar, "Save", () => { try { SavedBytes = GetBytes(); DialogResult = DialogResult.OK; Close(); } catch (Exception ex) { ShowError(ex); } });
         Add(bar, "Format strict JSON", Format);

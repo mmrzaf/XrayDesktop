@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace XrayDesktop.Config;
 
-internal sealed record Inbound(string Tag, string Protocol, IPAddress Address, int Port, bool Authenticated)
+internal sealed record Inbound(string Tag, string Protocol, IPAddress Address, int Port, bool Authenticated, bool Manual = false)
 {
     public override string ToString() => $"{Protocol.ToUpperInvariant()} {Tag} — {(Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{Address}]" : Address.ToString())}:{Port}{(Authenticated ? " (auth/unknown)" : "")}";
 }
@@ -36,11 +36,11 @@ internal static class ConfigInspector
                 if (protocol is not ("http" or "socks")) continue;
                 if (!item.TryGetProperty("port", out var value) || !TryPort(value, out var port))
                 { warnings.Add("An HTTP/SOCKS inbound has no single valid port."); continue; }
-                if (item.TryGetProperty("streamSettings", out var stream) && (stream.ValueKind != JsonValueKind.Object || HasDuplicates(stream) || ReadString(stream, "network") is not (null or "tcp" or "raw") || ReadString(stream, "security") is not (null or "none")))
+                if (item.TryGetProperty("streamSettings", out var stream) && (stream.ValueKind != JsonValueKind.Object || HasDuplicates(stream) || !OptionalStringIs(stream, "network", "tcp", "raw") || !OptionalStringIs(stream, "security", "none")))
                 { warnings.Add("An inbound has unsupported transport/security for local endpoint selection."); continue; }
                 var auth = false;
                 if (item.TryGetProperty("settings", out var settings))
-                    auth = settings.ValueKind != JsonValueKind.Object || HasDuplicates(settings) || settings.TryGetProperty("accounts", out _) || ReadString(settings, "auth") is not (null or "noauth");
+                    auth = settings.ValueKind != JsonValueKind.Object || HasDuplicates(settings) || settings.TryGetProperty("accounts", out _) || (settings.TryGetProperty("auth", out var authentication) && (authentication.ValueKind != JsonValueKind.String || authentication.GetString() != "noauth"));
                 endpoints.Add(new(ReadString(item, "tag") ?? "(untagged)", protocol, address, port, auth));
             }
             if (endpoints.GroupBy(e => (e.Address, e.Port)).Any(g => g.Count() > 1))
@@ -50,6 +50,7 @@ internal static class ConfigInspector
         return new(endpoints, warnings);
     }
 
+    private static bool OptionalStringIs(JsonElement obj, string key, params string[] allowed) => !obj.TryGetProperty(key, out var value) || (value.ValueKind == JsonValueKind.String && allowed.Contains(value.GetString()));
     private static bool HasDuplicates(JsonElement obj) => obj.EnumerateObject().GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1);
     private static string? ReadString(JsonElement obj, string key) => obj.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     internal static bool TryPort(JsonElement value, out int port)

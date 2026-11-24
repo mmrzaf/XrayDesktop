@@ -1,3 +1,4 @@
+using System.Net;
 using XrayDesktop.App;
 using XrayDesktop.Config;
 
@@ -14,6 +15,7 @@ internal sealed class MainForm : Form
     private readonly Label warnings = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly TextBox logs = new() { Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 9) };
     private readonly FlowLayoutPanel profileBar = Bar(), coreBar = Bar(), logBar = Bar();
+    private readonly Button manual = new() { Text = "Manual endpoint", AutoSize = true };
     private readonly Button cancel = new() { Text = "Cancel operation", AutoSize = true, Enabled = false };
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 300 };
     private ProfileSettings settings = new(1, [], null);
@@ -31,8 +33,9 @@ internal sealed class MainForm : Form
         for (var i = 0; i < 6; i++) content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         profileBar.Controls.Add(profiles);
-        Add(profileBar, "Import", ImportAsync); Add(profileBar, "New", NewAsync); Add(profileBar, "Edit", EditAsync); Add(profileBar, "Remove reference", RemoveAsync); Add(profileBar, "Reload", InspectAsync);
-        var endpointBar = Bar(); endpointBar.Controls.Add(new Label { Text = "Local endpoint to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints);
+        Add(profileBar, "Import", ImportAsync); Add(profileBar, "New", NewAsync); Add(profileBar, "Edit", EditAsync); Add(profileBar, "Save As", SaveAsAsync); Add(profileBar, "Remove reference", RemoveAsync); Add(profileBar, "Reload", InspectAsync);
+        var endpointBar = Bar(); endpointBar.Controls.Add(new Label { Text = "Local endpoint to verify:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) }); endpointBar.Controls.Add(endpoints); endpointBar.Controls.Add(manual);
+        manual.Click += (_, _) => SelectManualEndpoint();
         Add(coreBar, "Check core", CheckAsync); Add(coreBar, "Validate", ValidateAsync); Add(coreBar, "Start", StartAsync); Add(coreBar, "Stop", _ => session.StopAsync()); Add(coreBar, "Restart", async token => { await session.StopAsync(); await StartAsync(token); });
         var commands = Bar(); commands.Controls.Add(coreBar); commands.Controls.Add(cancel);
         cancel.Click += (_, _) => operation?.Cancel();
@@ -45,7 +48,7 @@ internal sealed class MainForm : Form
         timer.Tick += async (_, _) =>
         {
             Render();
-            if (!busy && session.HasChild) await RunAsync(_ => session.PollAsync(), quiet: true);
+            if (!busy && session.ChildExited) await RunAsync(_ => session.PollAsync(), quiet: true);
         };
         FormClosing += OnClosing;
         FormClosed += (_, _) => timer.Dispose();
@@ -93,6 +96,7 @@ internal sealed class MainForm : Form
     }
     private async Task ImportAsync(CancellationToken token)
     {
+        EnsureCapacity();
         using var dialog = new OpenFileDialog { Filter = "Xray configuration (*.json;*.jsonc)|*.json;*.jsonc|All files (*.*)|*.*", CheckFileExists = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         var choice = MessageBox.Show(this, "Create a managed copy?\nYes: copy into app data. No: reference the original.\nRelative paths use the original directory; verify them before starting.", "Import", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
@@ -102,6 +106,7 @@ internal sealed class MainForm : Form
     }
     private async Task NewAsync(CancellationToken token)
     {
+        EnsureCapacity();
         using var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "profile.json", OverwritePrompt = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         var path = dialog.FileName; var directory = Path.GetDirectoryName(path)!;
@@ -158,16 +163,51 @@ internal sealed class MainForm : Form
         await CheckAsync(token);
         if (session.Version is { IsBaseline: false } version && MessageBox.Show(this, $"Xray {version.Version} is outside the {Bootstrap.TargetCoreVersion} baseline. Continue?", "Compatibility", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
-        var inspection = ConfigInspector.Inspect(bytes);
+        var inspection = await Task.Run(() => ConfigInspector.Inspect(bytes), token);
         if (inspection.Warnings.Count > 0 && MessageBox.Show(this, string.Join("\n", inspection.Warnings.Take(10)) + "\n\nStart this trusted configuration anyway?", "Configuration warnings", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         await Task.Run(() => session.StartAsync(bytes, profile.WorkingDirectory, selected, token), token);
+    }
+    private void EnsureCapacity()
+    {
+        if (settings.Profiles.Count >= 500) throw new InvalidOperationException("Profile limit (500) reached; remove a reference first.");
+    }
+    private async Task SaveAsAsync(CancellationToken token)
+    {
+        EnsureCapacity();
+        var profile = RequireProfile();
+        var bytes = await Task.Run(() => ProfileStore.ReadConfig(profile.Path), token);
+        using var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json|JSONC (*.jsonc)|*.jsonc", FileName = profile.Name + ".json", OverwritePrompt = true };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (string.Equals(Path.GetFullPath(dialog.FileName), Path.GetFullPath(profile.Path), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Use Edit to save to the existing profile.");
+        var path = dialog.FileName;
+        using var editor = new ConfigEditorForm(bytes, content => ValidateEditorAsync(content, Path.GetDirectoryName(path)!, token));
+        if (editor.ShowDialog(this) != DialogResult.OK || editor.SavedBytes is not { } saved) return;
+        await Task.Run(() => ProfileStore.SaveConfig(path, saved), token);
+        var created = await Task.Run(() => store.Import(path, false), token);
+        settings.Profiles.Add(created); RefreshProfiles(created.Id); await PersistAsync(); await InspectAsync(token);
+    }
+    private void SelectManualEndpoint()
+    {
+        using var dialog = new Form { Text = "Manual listener verification", StartPosition = FormStartPosition.CenterParent, Size = new Size(440, 240), FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false };
+        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12) };
+        var protocol = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 }; protocol.Items.AddRange(["http", "socks"]); protocol.SelectedIndex = 0;
+        var address = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 }; address.Items.AddRange(["127.0.0.1", "::1"]); address.SelectedIndex = 0;
+        var port = new NumericUpDown { Minimum = 1, Maximum = 65535, Value = 1, Width = 140 };
+        var ok = new Button { Text = "Verify this endpoint", AutoSize = true, DialogResult = DialogResult.OK };
+        panel.Controls.Add(new Label { Text = "Loopback only; no JSON changes or capability claims.", AutoSize = true }); panel.Controls.Add(protocol); panel.Controls.Add(address); panel.Controls.Add(port); panel.Controls.Add(ok);
+        dialog.Controls.Add(panel); dialog.AcceptButton = ok;
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        var endpoint = new Inbound("(manual)", protocol.Text, IPAddress.Parse(address.Text), (int)port.Value, Authenticated: true, Manual: true);
+        for (var i = endpoints.Items.Count - 1; i >= 0; i--) if (endpoints.Items[i] is Inbound { Manual: true }) endpoints.Items.RemoveAt(i);
+        endpoints.Items.Add(endpoint); endpoints.SelectedItem = endpoint;
     }
     private Profile RequireProfile() => Selected ?? throw new InvalidOperationException("Select a profile first.");
     private void Render()
     {
-        var running = session.HasChild;
-        status.Text = $"Core: {session.State} | Version: {session.Version?.Version ?? "unknown"} | PID: {session.Pid?.ToString() ?? "—"} | {session.Readiness}\nWindows proxy: not managed in Phase 1. Connectivity: not tested.";
-        profileBar.Enabled = !busy && !running && !closing; endpoints.Enabled = !busy && !running && !closing;
+        var running = !busy && session.HasChild;
+        if (busy) status.Text = "Operation in progress… | Windows proxy: not managed | Connectivity: not tested";
+        else status.Text = $"Core: {session.State} | Version: {session.Version?.Version ?? "unknown"} | PID: {session.Pid?.ToString() ?? "—"} | {session.Readiness}\nWindows proxy: not managed in Phase 1. Connectivity: not tested.";
+        profileBar.Enabled = !busy && !running && !closing; endpoints.Enabled = !busy && !running && !closing; manual.Enabled = endpoints.Enabled && Selected is not null;
         foreach (Control control in coreBar.Controls) control.Enabled = !busy && !closing && (control.Name switch { "Stop" or "Restart" => running, "Check core" => !running, _ => !running && Selected is not null });
         cancel.Enabled = busy && !closing;
         var batch = session.Log.ReadAfter(logId); logId = batch.Id;
