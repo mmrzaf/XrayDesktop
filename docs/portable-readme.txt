@@ -1,5 +1,5 @@
-Xray Desktop - Phase 4 development preview
-==========================================
+Xray Desktop - Phase 5 release candidate (acceptance pending)
+=========================================================
 
 Windows x64. Extract the entire archive into a writable, private folder.
 Obtain a trusted xray.exe (reference version v26.11.9) and put it next to
@@ -78,5 +78,6 @@ manually. No background cleanup or telemetry is implemented.
 
 Headless: --version, --self-test, --help. The self-test checks bootstrap
 metadata, not core functionality. SHA256SUMS.txt checks the archive payload;
-checksums do not prove publisher identity. See the repository and docs/phase-4.md for test status.
-This is a development preview, not a certified stable release.
+checksums do not prove publisher identity. See the repository and docs/phase-5.md for test status.
+This is an unapproved release candidate, not a certified stable release.
+First proxy-write acceptance must be performed in a disposable Windows test account/VM.

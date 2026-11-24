@@ -30,7 +30,7 @@ try {
     $project = 'src/XrayDesktop/XrayDesktop.csproj'
     $testProject = 'tests/XrayDesktop.Checks/XrayDesktop.Checks.csproj'
     $version = ([xml] (Get-Content -LiteralPath $project -Raw)).Project.PropertyGroup.Version
-    $output = Join-Path $root 'artifacts/phase4'
+    $output = Join-Path $root 'artifacts/phase5'
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Recurse -Force
     }
@@ -59,7 +59,7 @@ try {
     & (Join-Path $PSScriptRoot 'New-PortablePackage.ps1') -PublishDirectory $publish -OutputDirectory $dist -ExpectedVersion $version
     if ($env:GITHUB_STEP_SUMMARY) {
         @(
-            '## Phase 4 Windows build',
+            '## Phase 5 Windows release candidate',
             '',
             ('- SDK: ' + $sdk),
             ('- App version: ' + $version),
@@ -68,7 +68,10 @@ try {
             '- Proxy transaction checks use a simulated backend; no Windows proxy changes are made by default.',
             '- Diagnostic fixtures exercise loopback proxy rejection, cancellation, TLS rejection and safe export; no public endpoint is required.',
             '- Desktop preference, monitor placement and bounded storage checks passed.',
-            '- Real Xray, read-only WinINet and hidden WinForms construction checks are optional via XRAY_TEST_CORE, XRAY_TEST_WININET_READ and XRAY_TEST_UI; native proxy mutation, interactive GUI and clean-machine acceptance remain separate gates.'
+            ('- Real Xray integration: ' + $(if ($env:XRAY_TEST_CORE) { 'passed' } else { 'skipped (local build only)' })),
+            ('- Read-only WinINet: ' + $(if ($env:XRAY_TEST_WININET_READ -eq '1') { 'passed' } else { 'skipped' })),
+            ('- Hidden WinForms construction: ' + $(if ($env:XRAY_TEST_UI -eq '1') { 'passed' } else { 'skipped' })),
+            '- Native proxy mutation, interactive GUI, clean-machine and private VLESS acceptance remain separate gates. This is not a stable release.'
         ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
     }
 } finally {

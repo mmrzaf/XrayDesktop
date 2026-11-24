@@ -2,7 +2,7 @@
 
 Portable Windows x64 controller for an external Xray-core and raw Xray JSON configurations. Development follows [SDD.md](SDD.md).
 
-**Status:** Phase 4 source preview (`0.1.0-preview.4`). Phase 0–4 Windows build/runtime gates are not yet evidenced. See [Phase 4 acceptance](docs/phase-4.md), [Phase 3 acceptance](docs/phase-3.md), [Phase 2 acceptance](docs/phase-2.md) and the historical [Phase 1 record](docs/phase-1.md).
+**Status:** Phase 5 release-candidate source (`1.0.0-rc.1`), not a stable release. Windows compilation and runtime gates are not yet evidenced. See [Phase 5 acceptance](docs/phase-5.md), [manual acceptance checklist](docs/acceptance-checklist.md), [Phase 4 acceptance](docs/phase-4.md), [Phase 3 acceptance](docs/phase-3.md), [Phase 2 acceptance](docs/phase-2.md) and the historical [Phase 1 record](docs/phase-1.md).
 
 ## Users
 
@@ -38,19 +38,21 @@ pwsh -NoProfile -File ./scripts/Build.ps1
 
 The pipeline builds Release with warnings as errors, executes the console checks, publishes the single-file self-contained executable, verifies ZIP entries and SHA-256 checksums, runs the extracted EXE headless in a Unicode path from a different working directory, and uploads only on success.
 
-For an additional real-core integration check, obtain the trusted **v26.11.9 Windows x64** core yourself and set the absolute path before running the same build:
+CI now requires the real-core integration and read-only WinINet checks. It downloads the official **v26.11.9 Windows x64** asset into runner temp and verifies a pinned SHA-256 digest before extraction. The core is never packaged. For an equivalent local build:
 
 ```powershell
-$env:XRAY_TEST_CORE = 'C:\trusted-xray\xray.exe'
+$env:XRAY_TEST_CORE = ./scripts/Get-TestCore.ps1 -OutputDirectory (Join-Path $env:TEMP ('xray-test-' + [guid]::NewGuid().ToString('N')))
+$env:XRAY_REQUIRE_TEST_CORE = '1'
+$env:XRAY_TEST_WININET_READ = '1'
 pwsh -NoProfile -File ./scripts/Build.ps1
 ```
 
-This optional test uses a temporary direct-only configuration with a dynamically allocated loopback port; it makes no external network requests and never changes Windows proxy settings. Absence of the core is explicitly reported as skipped. A skipped test is not acceptance evidence. The synthetic child and TCP owner tests run regardless. Phase 2 adds simulated proxy-transaction tests, a real Windows DPAPI round trip in a temporary directory, a native layout check, and a local synthetic CONNECT rejection test. They do not deliberately mutate the Windows proxy. Optional `XRAY_TEST_WININET_READ=1` runs a read-only query without printing values; it is separate from the native write/restore gate in a disposable interactive Windows account. Phase 3 adds loopback-only HTTP/SOCKS5 rejection, unreachable-proxy, cancellation, TLS certificate rejection and structured-report checks; no real public endpoints or proxy mutation are used. Phase 4 adds 13 mandatory placement, preference and bounded-storage checks. An optional `XRAY_TEST_UI=1` check constructs and disposes a hidden WinForms window without firing Shown/Closing; it never starts Xray or writes Windows proxy settings. Enable it via the manually dispatched workflow input `hidden_ui_check` or the local environment. It does not verify actual tray interactions, accessibility or DPI rendering. Outputs:
+The integration test uses a temporary freedom-outbound configuration with separate HTTP and SOCKS loopback listeners, an in-process local HTTP origin, malformed-config rejection, stop, unexpected owned-core exit and restart. It makes no public probe requests and never changes Windows proxy settings. Local builds without the required-test flag may skip the real core; a skip is not acceptance evidence. The synthetic child and TCP owner tests run regardless. Phase 2 adds simulated proxy-transaction tests, a real Windows DPAPI round trip in a temporary directory, a native layout check, and a local synthetic CONNECT rejection test. They do not deliberately mutate the Windows proxy. `XRAY_TEST_WININET_READ=1` (required in CI) runs a read-only query without printing values; it is separate from the native write/restore gate in a disposable interactive Windows account. Phase 3 adds loopback-only HTTP/SOCKS5 rejection, unreachable-proxy, cancellation, TLS certificate rejection and structured-report checks; no real public endpoints or proxy mutation are used. Phase 4 adds 13 mandatory placement, preference and bounded-storage checks. An optional `XRAY_TEST_UI=1` check constructs and disposes a hidden WinForms window without firing Shown/Closing; it never starts Xray or writes Windows proxy settings. Enable it via the manually dispatched workflow input `hidden_ui_check` or the local environment. It does not verify actual tray interactions, accessibility or DPI rendering. Phase 5 adds a timeout/cancellation regression check. The candidate is intentionally untagged and cannot be considered stable until all applicable acceptance checks are evidenced. Outputs:
 
 ```text
-artifacts/phase4/dist/
-  XrayDesktop-0.1.0-preview.4-win-x64.zip
-  XrayDesktop-0.1.0-preview.4-win-x64.zip.sha256
+artifacts/phase5/dist/
+  XrayDesktop-1.0.0-rc.1-win-x64.zip
+  XrayDesktop-1.0.0-rc.1-win-x64.zip.sha256
 ```
 
 ## Repository
