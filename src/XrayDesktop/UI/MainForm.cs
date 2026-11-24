@@ -24,8 +24,9 @@ internal sealed partial class MainForm : Form
     private readonly ComboBox profiles = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, DisplayMember = "Name" };
     private readonly ComboBox endpoints = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 360 };
     private readonly Label status = new() { AutoSize = true };
-    private readonly Label headline = new() { AutoSize = true, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold), MaximumSize = new Size(780, 0) };
+    private readonly Label headline = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label nextStep = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
+    private readonly Label proxyHint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(780, 0) };
     private readonly Label details = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Label warnings = new() { AutoSize = true, MaximumSize = new Size(780, 0) };
     private readonly Panel errorPanel = new() { Dock = DockStyle.Top, AutoSize = true, Visible = false, Padding = new Padding(10), BackColor = Color.FromArgb(253, 231, 233) };
@@ -50,6 +51,7 @@ internal sealed partial class MainForm : Form
     {
         Text = $"{Bootstrap.ProductName} — {Bootstrap.Version}"; StartPosition = FormStartPosition.CenterScreen;
         AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
+        headline.Font = new Font(Font, FontStyle.Bold);
         MinimumSize = new Size(700, 520); Size = new Size(1040, 760);
         var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(10), ColumnCount = 1, RowCount = 3 };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -112,7 +114,7 @@ internal sealed partial class MainForm : Form
             Section("3. Validate and run Xray",
                 Hint("Validate asks Xray to check the configuration. Start runs it without changing any Windows proxy setting."), coreBar),
             Section("4. Route Windows apps through Xray (optional)",
-                Hint("Enable asks permission for one HTTPS test, then applies the Windows LAN proxy and records your previous settings so they can be restored."), proxyBar)
+                Hint("Enable asks permission for one HTTPS test, then applies the Windows LAN proxy and records your previous settings so they can be restored."), proxyBar, proxyHint)
         ]);
         logBar.Dock = DockStyle.Bottom; logTab.Controls.Add(logs); logTab.Controls.Add(logBar);
         var diagnosticTab = new TabPage("Diagnostics"); diagnosticTab.Controls.Add(diagnostics);
@@ -508,7 +510,17 @@ internal sealed partial class MainForm : Form
             "Review / resolve" => true,
             _ => !running
         });
-        UpdateGuidance(running, currentProxy);
+        var hasHttpListener = endpoints.Items.OfType<Inbound>().Any(endpoint => endpoint.Protocol == "http");
+        proxyHint.Text = Selected is null
+            ? "Import a configuration to see which local listeners are available."
+            : running
+                ? session.CanProbeHttp
+                    ? "An owned anonymous HTTP listener is ready. Enable applies the Windows LAN proxy after one approved HTTPS test."
+                    : "No eligible anonymous HTTP listener is active. Windows system proxy requires one, so it stays unavailable for this run. This profile may be SOCKS/local-only."
+                : hasHttpListener
+                    ? "Start Xray with an HTTP listener selected, then Enable can apply the Windows LAN proxy."
+                    : "This profile has no HTTP listener. Xray can start and apps can use the SOCKS port, but Windows system proxy cannot be enabled.";
+        UpdateGuidance(running, currentProxy, hasHttpListener);
         cancel.Enabled = busy && !closing;
         diagnostics.SetBusy(busy || closing);
         settingsBar.Enabled = !busy && !closing;
@@ -539,7 +551,7 @@ internal sealed partial class MainForm : Form
             else { logs.Select(Math.Min(selection, logs.TextLength), Math.Min(selectionLength, Math.Max(0, logs.TextLength - selection))); logs.ScrollToCaret(); }
         }
     }
-    private void UpdateGuidance(bool running, ProxyStatus currentProxy)
+    private void UpdateGuidance(bool running, ProxyStatus currentProxy, bool hasHttpListener)
     {
         errorPanel.Visible = !string.IsNullOrWhiteSpace(lastError);
         errorText.Text = lastError ?? string.Empty;
@@ -586,6 +598,12 @@ internal sealed partial class MainForm : Form
             nextStep.Text = "Click Import configuration… to open an existing Xray JSON file, or New configuration… to create one. Nothing starts automatically.";
             return;
         }
+        if (running && !session.CanProbeHttp)
+        {
+            headline.Text = "Xray is running (SOCKS/local only)";
+            nextStep.Text = "Windows system proxy needs an HTTP listener, so Enable stays disabled. Use the SOCKS port in your apps, or add an HTTP inbound to the profile and restart.";
+            return;
+        }
         if (running)
         {
             headline.Text = "Xray is running";
@@ -600,6 +618,11 @@ internal sealed partial class MainForm : Form
         {
             headline.Text = "Xray core could not be checked";
             nextStep.Text = "Click Check core and review the error in Logs. The tested core is Xray " + Bootstrap.TargetCoreVersion + ".";
+        }
+        else if (!hasHttpListener)
+        {
+            headline.Text = "Ready to start (no HTTP listener)";
+            nextStep.Text = "Xray can run, but Windows system proxy cannot be enabled without an HTTP inbound. Start Xray and use the SOCKS port, or edit the profile to add an HTTP listener.";
         }
         else
         {
@@ -631,7 +654,14 @@ internal sealed partial class MainForm : Form
     }
     private void ShowError(Exception ex)
     {
-        lastError = ex.Message;
+        var message = ex.Message;
+        if (message.Contains("exited during startup", StringComparison.Ordinal))
+            message += " A local listener port may already be in use. Open Logs for the Xray error, then choose another port or stop the conflicting app.";
+        else if (message.Contains("rejected the configuration", StringComparison.Ordinal))
+            message += " Open Logs for the exact Xray validation error.";
+        else if (ex is UnauthorizedAccessException)
+            message += " Move the portable folder to a writable private location, or close the app using the file.";
+        lastError = message;
         session.Log.Add("error", ex.ToString());
     }
 }
