@@ -4,7 +4,7 @@ using XrayDesktop.Windows;
 
 namespace XrayDesktop.App;
 
-internal enum LinkState { Disconnected, Connecting, Connected, Unstable, Disconnecting }
+internal enum ConnectionState { Disconnected, Connecting, Connected, Unstable, Disconnecting }
 
 // What the user sees as one switch: start the core, prove the tunnel works,
 // then point Windows at it. Disconnect reverses the order so Windows never
@@ -16,19 +16,19 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
     private int failures;
     private bool proxyOwned;
 
-    internal LinkState State { get; private set; } = LinkState.Disconnected;
+    internal ConnectionState State { get; private set; } = ConnectionState.Disconnected;
     internal string? ProfileName { get; private set; }
     internal string? Problem { get; private set; }
     internal IReadOnlyList<string> Adjustments { get; private set; } = [];
     internal DateTimeOffset? Since { get; private set; }
-    internal bool Active => State is LinkState.Connected or LinkState.Unstable;
+    internal bool Active => State is ConnectionState.Connected or ConnectionState.Unstable;
 
     // Returns false when the user declined a confirmation or the attempt failed
     // (Problem explains why). Everything started is undone before returning.
     internal async Task<bool> ConnectAsync(string name, byte[] config, string workingDirectory, Uri probe,
         Func<RunPlan, bool> confirmWarnings, Func<ProxySettings, bool> confirmExternalProxy, CancellationToken token)
     {
-        State = LinkState.Connecting; Problem = null; ProfileName = name; Adjustments = [];
+        State = ConnectionState.Connecting; Problem = null; ProfileName = name; Adjustments = [];
         try
         {
             if (await Task.Run(() => proxy.HasPending, token).ConfigureAwait(true))
@@ -51,14 +51,14 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
             await Task.Run(() => proxy.Acquire(original, plan.Http, session.VerifyHttpOwner), CancellationToken.None).ConfigureAwait(true);
             proxyOwned = true;
             if (!ProxyGuard.Launch(proxy.Status.Journal?.Id)) session.Log.Add("proxy", "Crash guard could not start; the proxy will be restored the next time the app opens.");
-            failures = 0; Since = DateTimeOffset.Now; State = LinkState.Connected;
+            failures = 0; Since = DateTimeOffset.Now; State = ConnectionState.Connected;
             session.Log.Add("app", $"Connected through '{name}'.");
             return true;
         }
         catch (OperationCanceledException)
         {
             await UndoAsync().ConfigureAwait(true);
-            State = LinkState.Disconnected;
+            State = ConnectionState.Disconnected;
             throw;
         }
         catch (Exception ex)
@@ -66,12 +66,12 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
             session.Log.Add("error", ex.ToString());
             Problem = FriendlyError.Describe(ex, session);
             await UndoAsync().ConfigureAwait(true);
-            State = LinkState.Disconnected;
+            State = ConnectionState.Disconnected;
             return false;
         }
 
-        bool Declined() { State = LinkState.Disconnected; return false; }
-        async Task<bool> DeclinedAsync() { await UndoAsync().ConfigureAwait(true); State = LinkState.Disconnected; return false; }
+        bool Declined() { State = ConnectionState.Disconnected; return false; }
+        async Task<bool> DeclinedAsync() { await UndoAsync().ConfigureAwait(true); State = ConnectionState.Disconnected; return false; }
     }
 
     // False means Windows proxy restoration could not be verified; the core is
@@ -79,7 +79,7 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
     internal async Task<bool> DisconnectAsync(bool ignoreProxyFailure)
     {
         var previous = State;
-        State = LinkState.Disconnecting;
+        State = ConnectionState.Disconnecting;
         try
         {
             try { await Task.Run(proxy.Restore).ConfigureAwait(true); proxyOwned = false; }
@@ -94,13 +94,13 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
                 }
             }
             if (session.HasChild) await Task.Run(session.StopAsync).ConfigureAwait(true);
-            State = LinkState.Disconnected; Since = null; Problem = null;
+            State = ConnectionState.Disconnected; Since = null; Problem = null;
             return true;
         }
         catch (Exception ex)
         {
             session.Log.Add("error", ex.ToString());
-            State = LinkState.Disconnected; Since = null; Problem = FriendlyError.Describe(ex, session);
+            State = ConnectionState.Disconnected; Since = null; Problem = FriendlyError.Describe(ex, session);
             return true;
         }
     }
@@ -112,7 +112,7 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
         try { await Task.Run(proxy.Restore).ConfigureAwait(true); proxyOwned = false; }
         catch (Exception) { session.Log.Add("proxy", "Core exited; proxy recovery incomplete."); }
         finally { await Task.Run(session.PollAsync).ConfigureAwait(true); }
-        State = LinkState.Disconnected; Since = null;
+        State = ConnectionState.Disconnected; Since = null;
         if (wasActive) Problem = FriendlyError.CoreExited(session);
     }
 
@@ -124,15 +124,15 @@ internal sealed class ConnectionController(SessionController session, ProxyContr
         {
             await Task.Run(() => HttpProxyProbe.VerifyAsync(endpoint, probe, HealthTimeout, token), token).ConfigureAwait(true);
             if (!Active) return true; // Disconnected while the probe was in flight.
-            if (State == LinkState.Unstable) session.Log.Add("app", "Connection recovered.");
-            failures = 0; State = LinkState.Connected;
+            if (State == ConnectionState.Unstable) session.Log.Add("app", "Connection recovered.");
+            failures = 0; State = ConnectionState.Connected;
             return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
         {
             failures++;
-            if (failures >= UnstableAfterFailures && State == LinkState.Connected)
-            { State = LinkState.Unstable; session.Log.Add("app", "The server stopped answering."); }
+            if (failures >= UnstableAfterFailures && State == ConnectionState.Connected)
+            { State = ConnectionState.Unstable; session.Log.Add("app", "The server stopped answering."); }
             return false;
         }
     }

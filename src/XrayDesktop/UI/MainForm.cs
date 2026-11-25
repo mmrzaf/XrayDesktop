@@ -149,7 +149,7 @@ internal sealed partial class MainForm : Form
         connectButton.FlatAppearance.BorderSize = 0;
         connectButton.Click += async (_, _) =>
         {
-            if (busy && connection.State == LinkState.Connecting) operation?.Cancel();
+            if (busy && connection.State == ConnectionState.Connecting) operation?.Cancel();
             else await RunAsync(ToggleConnectionAsync);
         };
         var row = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 4, Margin = new Padding(0) };
@@ -235,7 +235,7 @@ internal sealed partial class MainForm : Form
         if (typing && e.KeyData != (Keys.Control | Keys.F)) return;
         switch (e.KeyData)
         {
-            case Keys.F6: if (busy && connection.State == LinkState.Connecting) operation?.Cancel(); else await RunAsync(ToggleConnectionAsync); break;
+            case Keys.F6: if (busy && connection.State == ConnectionState.Connecting) operation?.Cancel(); else await RunAsync(ToggleConnectionAsync); break;
             case Keys.Control | Keys.V: await RunAsync(PasteLinkAsync); break;
             case Keys.Control | Keys.O: await RunAsync(ImportAsync); break;
             case Keys.Control | Keys.E: await RunAsync(EditAsync); break;
@@ -319,7 +319,7 @@ internal sealed partial class MainForm : Form
                 healthPoll = task;
                 try { await task; }
                 finally { healthPoll = null; healthSource = null; if (!IsDisposed) Render(); }
-                if (before == LinkState.Connected && connection.State == LinkState.Unstable) Notify("Connection problem", "The server stopped answering. Open Xray Desktop to disconnect or wait for it to recover.", ToolTipIcon.Warning);
+                if (before == ConnectionState.Connected && connection.State == ConnectionState.Unstable) Notify("Connection problem", "The server stopped answering. Open Xray Desktop to disconnect or wait for it to recover.", ToolTipIcon.Warning);
             }
             else if (now - lastProxyPoll >= 3000)
             {
@@ -630,16 +630,16 @@ internal sealed partial class MainForm : Form
         var idle = !busy && !closing;
         (string Title, string Detail, Color Dot, string Button, Color Back) view = state switch
         {
-            LinkState.Connecting => ("Connecting…", "Starting the engine and testing the connection.", Color.FromArgb(230, 160, 20), "Cancel", Color.FromArgb(96, 96, 96)),
-            LinkState.Connected => ("Connected", $"Windows apps use “{connection.ProfileName}” · {Uptime()}", Color.FromArgb(34, 160, 80), "Disconnect", Color.FromArgb(176, 52, 52)),
-            LinkState.Unstable => ("Connection problem", "The server is not answering. Pages may not load. Wait for it to recover, or disconnect.", Color.FromArgb(230, 160, 20), "Disconnect", Color.FromArgb(176, 52, 52)),
-            LinkState.Disconnecting => ("Disconnecting…", "Restoring your previous Windows settings.", Color.FromArgb(230, 160, 20), "Disconnecting…", Color.FromArgb(96, 96, 96)),
+            ConnectionState.Connecting => ("Connecting…", "Starting the engine and testing the connection.", Color.FromArgb(230, 160, 20), "Cancel", Color.FromArgb(96, 96, 96)),
+            ConnectionState.Connected => ("Connected", $"Windows apps use “{connection.ProfileName}” · {Uptime()}", Color.FromArgb(34, 160, 80), "Disconnect", Color.FromArgb(176, 52, 52)),
+            ConnectionState.Unstable => ("Connection problem", "The server is not answering. Pages may not load. Wait for it to recover, or disconnect.", Color.FromArgb(230, 160, 20), "Disconnect", Color.FromArgb(176, 52, 52)),
+            ConnectionState.Disconnecting => ("Disconnecting…", "Restoring your previous Windows settings.", Color.FromArgb(230, 160, 20), "Disconnecting…", Color.FromArgb(96, 96, 96)),
             _ => ("Not connected", Selected is null ? "Add a profile to get started." : "Windows is using its normal internet settings.", Color.FromArgb(150, 150, 150), "Connect", Color.FromArgb(0, 95, 184))
         };
         statusTitle.Text = view.Title; statusDetail.Text = view.Detail; statusDot.ForeColor = view.Dot;
         connectButton.Text = view.Button; connectButton.BackColor = view.Back; connectButton.ForeColor = Color.White;
-        connectButton.Enabled = !closing && state != LinkState.Disconnecting &&
-            (state == LinkState.Connecting ? busy : idle && (connection.Active || session.HasChild || Selected is not null));
+        connectButton.Enabled = !closing && state != ConnectionState.Disconnecting &&
+            (state == ConnectionState.Connecting ? busy : idle && (connection.Active || session.HasChild || Selected is not null));
         var editable = idle && !connection.Active && !session.HasChild;
         profiles.Enabled = editable; addButton.Enabled = editable; moreButton.Enabled = idle;
         editItem.Enabled = renameItem.Enabled = removeItem.Enabled = editable && Selected is not null;
@@ -653,7 +653,7 @@ internal sealed partial class MainForm : Form
         if (needsAttention) recoveryText.Text = proxyState.State == ProxyState.Conflict
             ? "Another program changed the Windows proxy settings while Xray Desktop was using them. Nothing was overwritten."
             : "Windows is still set to a proxy from a previous session of this app. Restore your previous settings to get back to normal.";
-        cancel.Visible = busy && !closing && state != LinkState.Connecting;
+        cancel.Visible = busy && !closing && state != ConnectionState.Connecting;
         diagnostics.SetBusy(busy || closing);
         settingsBar.Enabled = idle;
         foreach (Control control in logBar.Controls) control.Enabled = !closing && (control == autoScroll || !busy);

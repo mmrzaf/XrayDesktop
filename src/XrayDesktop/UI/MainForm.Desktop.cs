@@ -62,18 +62,18 @@ internal sealed partial class MainForm
         };
         trayExit.Click += (_, _) => { if (closing) return; exitRequested = true; ShowWindow(); Close(); };
     }
-    private void UpdateTray(LinkState state, bool idle)
+    private void UpdateTray(ConnectionState state, bool idle)
     {
         trayToggle.Text = connection.Active || session.HasChild ? "Disconnect" : "Connect";
         trayToggle.Enabled = idle && (connection.Active || session.HasChild || Selected is not null);
         trayExit.Enabled = !closing;
-        var icon = state switch { LinkState.Connected => StatusIcons.On, LinkState.Disconnected => StatusIcons.Off, _ => StatusIcons.Busy };
+        var icon = state switch { ConnectionState.Connected => StatusIcons.On, ConnectionState.Disconnected => StatusIcons.Off, _ => StatusIcons.Busy };
         if (!ReferenceEquals(tray.Icon, icon)) tray.Icon = icon;
         var tooltip = state switch
         {
-            LinkState.Connected => $"{Bootstrap.ProductName} — connected",
-            LinkState.Unstable => $"{Bootstrap.ProductName} — connection problem",
-            LinkState.Connecting => $"{Bootstrap.ProductName} — connecting…",
+            ConnectionState.Connected => $"{Bootstrap.ProductName} — connected",
+            ConnectionState.Unstable => $"{Bootstrap.ProductName} — connection problem",
+            ConnectionState.Connecting => $"{Bootstrap.ProductName} — connecting…",
             _ => $"{Bootstrap.ProductName} — not connected"
         };
         if (tray.Text != tooltip) tray.Text = tooltip;
