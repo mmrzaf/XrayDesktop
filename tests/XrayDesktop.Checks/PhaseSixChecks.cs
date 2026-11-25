@@ -36,6 +36,18 @@ internal static class PhaseSixChecks
     private static string B64(string text) => Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
     private const string Uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
 
+    // One of each supported shape; the real-core integration check validates the generated configurations.
+    internal static IEnumerable<(string Name, string Link)> SampleLinks()
+    {
+        yield return ("vless reality", $"vless://{Uuid}@example.com:443?type=tcp&security=reality&sni=www.microsoft.com&fp=chrome&pbk=ACC07MFOA_7Ivp_U4ez5Z-A0GYAtw470sHV9P4euzuU&sid=ab12cd34&flow=xtls-rprx-vision&encryption=none#r");
+        yield return ("vless ws tls", $"vless://{Uuid}@cdn.example.com:443?type=ws&security=tls&host=front.example.com&path=%2Fws&sni=front.example.com&alpn=h2,http/1.1#w");
+        yield return ("vless grpc tls", $"vless://{Uuid}@g.example.com:443?type=grpc&security=tls&serviceName=svc&sni=g.example.com#g");
+        yield return ("vless tcp", $"vless://{Uuid}@t.example.com:8443?type=tcp#t");
+        yield return ("vmess ws tls", "vmess://" + B64($$"""{"v":"2","ps":"v","add":"vm.example.com","port":"8443","id":"{{Uuid}}","aid":"0","scy":"auto","net":"ws","type":"none","host":"vm.example.com","path":"/v","tls":"tls","sni":"vm.example.com"}"""));
+        yield return ("trojan", "trojan://secret@t.example.com:443?sni=t.example.com#t");
+        yield return ("shadowsocks", $"ss://{B64("aes-256-gcm:secret")}@ss.example.com:8388#s");
+    }
+
     private static void VlessReality()
     {
         var profile = ShareLink.Parse($"vless://{Uuid}@example.com:443?type=tcp&security=reality&sni=www.microsoft.com&fp=chrome&pbk=KEY&sid=ab12&flow=xtls-rprx-vision&encryption=none#My%20Server");

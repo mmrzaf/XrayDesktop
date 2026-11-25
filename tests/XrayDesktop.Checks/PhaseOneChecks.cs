@@ -179,6 +179,12 @@ internal static class PhaseOneChecks
         await session.CheckAsync(token.Token); Assert(session.Version?.IsBaseline == true);
         var invalid = await session.ValidateAsync("{"u8.ToArray(), root, token.Token);
         Assert(invalid.ExitCode != 0 && !session.HasChild && session.LastValidationOutput.Count > 0);
+        Console.WriteLine("Integration: validate generated share-link configurations");
+        foreach (var (name, link) in PhaseSixChecks.SampleLinks())
+        {
+            var generated = await session.ValidateAsync(ShareLink.Parse(link).Config, root, token.Token);
+            if (generated.ExitCode != 0) throw new InvalidOperationException($"Xray rejected the generated '{name}' configuration: {string.Join(" | ", generated.Output)}");
+        }
         int httpPort, socksPort;
         using var origin = new TcpListener(IPAddress.Loopback, 0);
         origin.Start();
