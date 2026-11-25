@@ -59,6 +59,13 @@ internal sealed class ProfileStore(string dataDirectory)
         return new(id, name.Trim(), path, Path.GetFullPath(workingDirectory));
     }
 
+    // Only the copies this app created are deleted; a referenced external file never is.
+    internal void Delete(Profile profile)
+    {
+        var managed = Path.GetFullPath(Path.Combine(DataDirectory, "profiles")) + Path.DirectorySeparatorChar;
+        if (Path.GetFullPath(profile.Path).StartsWith(managed, StringComparison.OrdinalIgnoreCase)) File.Delete(profile.Path);
+    }
+
     private string ManagedPath(Guid id) => Path.Combine(DataDirectory, "profiles", $"{id:N}.json");
     internal static byte[] ReadConfig(string path) => AtomicFile.ReadBounded(path, MaxConfigBytes);
     internal static void SaveConfig(string path, byte[] bytes)
