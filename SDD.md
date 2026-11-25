@@ -67,33 +67,27 @@ Portable data is stored beside the app; writable folder required. If read-only, 
 
 ## 4. GUI and interaction
 
-One resizable main form using standard WinForms controls; minimum practical size about 700×520, DPI-aware, keyboard accessible, no custom drawing or theme framework.
+One resizable main form using standard WinForms controls; minimum practical size about 640×520, DPI-aware, keyboard accessible. The default screen is built for someone who only wants to be connected; everything technical lives on other tabs or behind **More**.
 
 ```text
- Xray Desktop — 0.3.0
- No configuration selected                         [Cancel operation]
- Next: Click Import configuration… to open an Xray JSON file…
- Core: Stopped | Version: 26.11.9 | PID: — | Uptime: —    Windows LAN proxy: Unmanaged
- (last error, when any) [Open Logs] [Dismiss]
- ----------------------------------------------------------------
- [ Start ] [ Logs ] [ Diagnostics ] [ Settings ]
- Start tab:
-  1. Choose a configuration
-     Profile [ Home configuration v ] [Import] [New] [Edit] [Save as] [Reload] [Remove]
-  2. Choose the listener to verify (optional)
-     [ 127.0.0.1:port (http) v ] [Manual endpoint]
-  3. Validate and run Xray
-     [Check core] [Validate configuration] [Start Xray] [Stop Xray] [Restart Xray]
-  4. Route Windows apps through Xray (optional)
-     [Enable system proxy] [Restore system proxy] [Review / resolve]
-     [ ] Enable proxy after Start (ask first)
+ [ Connect ] [ Logs ] [ Diagnostics ] [ Settings ]
+ (error banner, when any)  [Run diagnostics] [Open logs] [Dismiss]
+ (Windows proxy notice, when any)  [Restore my previous settings] [Review…]
+
+   ● Connected
+     Windows apps use “Home” · 12 min 05 s
+   [            Disconnect            ]
+   Profile [ Home v ] [Add ▾] [More ▾]
 ```
 
-- Main form: a persistent header shows the current core/proxy state, the next useful action and the last error on every tab; errors are no longer only visible in Logs and offer Local diagnostics. The Start tab groups the workflow in order: configuration, optional listener verification, validate/start with inline validation output, optional Windows proxy. The selected profile shows detected listeners, outbound tags and routing-rule count. Port conflicts are surfaced before Start with a managed-copy port fix. SOCKS-only profiles can be copied into a validated managed profile with a loopback HTTP listener. JSON/JSONC files can be dropped onto the window, log search and keyboard shortcuts are available, and unexpected exits raise a tray notification when hidden. Disable conflicting operations during transitions; allow cancelling probes. A running profile cannot be edited in-place: edits apply to next start, with a dirty/restart indicator.
-- Editor dialog: plain multiline monospace text, paste, open, save, Save As, optional format, validation output. Strict JSON formatting may remove comments: require explicit confirmation for JSONC or refuse formatting it. Preserve encoding/content except intentional edits; unsaved changes prompt before close. Validate the actual editor snapshot, never implicitly overwrite source.
-- Diagnostics tab: Test selected, Run all, Cancel, Copy/Export report; rows with outcome, elapsed time and details. Display test URL and whether it goes directly or through a proxy. Settings: startup behavior, endpoint choice/override, probe URLs/timeouts, log persistence and tray option.
-- Tray: show window, start/stop, toggle managed proxy, exit. Close normally exits (restore then stop); minimize-to-tray is opt-in. Tray menu mirrors state; clear distinction between hide and exit.
-- No auto start of core or enablement of proxy merely because GUI opens. Default enable-on-start checkbox is off, first use requires explicit action. No network probes on application startup.
+- **Connect tab.** One status (not connected, connecting, connected, connection problem, disconnecting) and one large button. **Add** offers *Paste link from clipboard* (`vless://`, `vmess://`, `trojan://`, `ss://`, one per line), *Import file…* (also by drag and drop) and *Create manually…*. **More** offers edit (validated by the core), rename, remove and *Review Windows proxy…*. Profiles from links or files are always saved as managed copies and are validated by the bundled core before they are saved. Profile commands are unavailable while connected.
+- **Connect** = validate the run copy, make sure it has an anonymous loopback HTTP listener (adding or moving listeners in the run copy only, never in the profile file), start Xray, verify that Xray owns the listener, make one HTTPS request through it, and only then acquire the Windows proxy. Any failure undoes everything started and shows a plain-language problem; Windows is untouched unless the proxy transaction itself succeeded. A pre-existing external proxy or PAC requires one confirmation. Profiles with warnings (for example a listener reachable from the network) require one confirmation. **Disconnect** restores the proxy first, then stops Xray; if restoration cannot be verified the connection stays up and the user chooses to retry or disconnect anyway.
+- **Health.** While connected, one HTTPS request through the tunnel every 20 seconds; two consecutive failures show *Connection problem* and a tray notification, recovery returns to *Connected*. Nothing is disconnected automatically. An unexpected Xray exit restores the proxy and reports the exit.
+- **Closing.** Closing the window while connected hides it to the notification area (once-only notice); tray menu: open, connect/disconnect, exit. Exit, tray Exit, Windows logoff/shutdown and Task Manager *End task* restore the proxy first. Launching a second copy shows the running window. Tray icon colour reflects state.
+- **Crash safety.** After acquiring the proxy the app starts a guard (`XrayDesktop.exe --guard <pid> <journal-id>`) that waits for the GUI process and restores the journaled settings if the GUI dies without doing so. It acts only on its own journal and never overrides settings changed by someone else. Startup recovery remains the fallback.
+- **Editor dialog**: plain multiline monospace text with validation output. Strict JSON formatting may remove comments. The editor validates the exact snapshot and never overwrites its source implicitly.
+- **Diagnostics tab**: Test selected, Run all, Cancel, report preview; rows with outcome, elapsed time and details. Its HTTPS destination is also the connect and health-check target. **Settings**: window preferences, remove all profiles.
+- No auto start of the core and no network probes merely because the GUI opens.
 
 ## 5. Architecture and repository
 
@@ -104,10 +98,10 @@ XrayDesktop.sln
 src/XrayDesktop/
   XrayDesktop.csproj, Program.cs
   UI/MainForm.cs, ConfigEditorForm.cs
-  App/SessionController.cs, SessionState.cs
+  App/SessionController.cs, ConnectionController.cs, RunPlan.cs
   Core/XrayProcess.cs, CoreVersion.cs, JobObject.cs
-  Config/ProfileStore.cs, ConfigInspector.cs
-  Windows/SystemProxy.cs, ProxyRecovery.cs, SingleInstance.cs
+  Config/ProfileStore.cs, ConfigInspector.cs, ShareLink.cs
+  Windows/SystemProxy.cs, ProxyRecovery.cs, ProxyGuard.cs, SingleInstance.cs
   Diagnostics/DiagnosticRunner.cs, NetworkProbes.cs, ReportRedactor.cs
   Storage/SettingsStore.cs, AtomicFile.cs, LogBuffer.cs
   Models/...
@@ -120,7 +114,10 @@ SDD.md, README.md, .gitignore
 
 | Component | Responsibility / boundary |
 |---|---|
-| SessionController | Sole owner of transitions, core exit events and proxy acquire/release; cancellation/generation checks |
+| SessionController | Owns the Xray child process, its snapshot and log; start/stop/validate |
+| ConnectionController | The user-visible connection: ordered connect/disconnect with undo, proxy acquire/release, health state |
+| ShareLink / RunPlan | Share links to complete configurations; run-copy listener preparation |
+| ProxyGuard | Restores the journaled proxy when the GUI process dies |
 | XrayProcess | Version/validation/start/stop, argument list, stdout/stderr, process ownership |
 | ConfigInspector | Best-effort read-only inspection of inbounds/endpoints; no protocol schema enforcement |
 | ProfileStore | Explicit file import/save and managed profiles, immutable run snapshots |
@@ -251,7 +248,7 @@ One GitHub Actions workflow initially; Windows hosted runner pinned to a concret
 3. Obtain the pinned core from the official GitHub release, verify the asset checksum and individual payload hashes, extract to CI temp, confirm its version, and use the same verified bytes for both integration tests and packaging. No public endpoint dependency for functional CI. Fail clearly if the asset is unavailable; do not silently skip required integration checks, download twice, or replace with latest.
 4. Publish GUI with `dotnet publish src/XrayDesktop/XrayDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o <staging>` (restore/publish properties must match; confirm actual outputs). Do not rely on cross-compilation as proof of runtime behavior.
 5. Assert the staged EXE and verified core files exist; run `--self-test` or `--version` headless paths that exit without changing proxy; fail on nonzero or timeout. Package only expected files, verify ZIP contents, payload hashes, internal manifest and the extracted GUI/core, compute SHA-256, upload artifact and build/test summaries. Test GUI behavior separately on real desktop. Never upload test logs containing secrets, private config or build caches, and never add unverified core files.
-6. Release only after manual gate: tag `v0.3.0`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
+6. Release only after manual gate: tag `v0.4.0`, attach the verified portable ZIP and checksums plus known limitations. User downloads and unzips; no C# tools required.
 
 ## 13. Implementation plan (ordered, gated; no time promises)
 

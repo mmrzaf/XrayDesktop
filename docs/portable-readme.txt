@@ -1,4 +1,4 @@
-Xray Desktop 0.3.0 - portable preview (acceptance pending)
+Xray Desktop 0.4.0 - portable (manual acceptance pending)
 ==========================================================
 
 Windows x64. Extract the entire archive into a writable, private folder. The
@@ -6,80 +6,50 @@ archive already contains the official Xray-core v26.11.9 (xray.exe), geoip.dat
 and geosite.dat. No .NET runtime, separate Xray download, development tools or
 admin elevation is required. Unsigned builds may trigger SmartScreen.
 
-Launch XrayDesktop.exe, then import an existing raw JSON/JSONC configuration as
-a reference or managed copy, or create one with New. Edit and explicitly save
-changes; Save As makes another profile. The working directory is the original
-profile directory (a Save As uses the new directory). Relative paths and
-required assets must be verified. Validate calls the bundled Xray, not a
-replacement schema. Start validates a snapshot, then starts that same snapshot.
-Stop terminates the owned job, not other Xray processes. Choose an explicit
-local inbound or a manual loopback endpoint to check TCP listener ownership.
-Listener ownership does not establish HTTP/SOCKS capability or remote
-connectivity.
+GETTING STARTED
+1. Copy a vless://, vmess://, trojan:// or ss:// link and choose
+   Add > Paste link from clipboard. (Or Add > Import file..., or drag a .json
+   file onto the window.) The bundled Xray checks the profile before saving it.
+2. Click Connect. The app starts Xray, tests the server with one HTTPS request
+   to https://www.gstatic.com/generate_204 (changeable on the Diagnostics tab),
+   and only then sets the Windows proxy. If the test fails, Windows is not
+   touched and the window explains what went wrong.
+3. Click Disconnect when you are done. Your previous Windows proxy settings are
+   restored exactly, then Xray stops.
+
+Windows needs an HTTP proxy port. If your profile has only SOCKS, or its ports
+are busy, the app adds or moves a local listener in the copy it runs; the
+profile file itself is never changed.
+
+While connected, a small request every 20 seconds checks the server. If it
+stops answering the status becomes "Connection problem". Closing the window
+while connected keeps the connection running in the notification area; use the
+tray menu to disconnect or exit. Starting the app again simply shows the
+running window. Exit, log off, shutdown and an unexpected Xray exit all restore
+your Windows proxy settings first.
+
+The More menu edits (validated by Xray), renames or removes a profile and
+reviews the Windows proxy state. Shortcuts: F6 connect/disconnect, Ctrl+V paste
+link, Ctrl+O import, Ctrl+E edit, Ctrl+L logs, Ctrl+D diagnostics, Ctrl+,
+settings, Ctrl+F find in logs. Raw logs may contain secrets; copy or save them
+only after reviewing the warning. Settings and profiles live in the data folder
+next to the app, which therefore must be writable.
 
 Replacing xray.exe or the geodata files with another compatible build is an
-optional advanced operation. The app detects the adjacent executable, checks
-its version and warns when it is outside the tested baseline. Missing bundled
-files produce a clear error. See THIRD-PARTY-NOTICES.txt and licenses/ for the
+optional advanced operation. The app checks the version and warns when it is
+outside the tested baseline. See THIRD-PARTY-NOTICES.txt and licenses/ for the
 bundled core and geodata provenance, licenses and source availability.
 
-After Start, choose Enable system proxy and approve a single HTTPS test to
-the Diagnostics HTTPS destination (default https://www.gstatic.com/generate_204)
-through the selected owned HTTP proxy. On success, the
-app manages the current user's default Windows LAN proxy. Local/intranet hosts
-bypass it. SOCKS-only or known authenticated endpoints are not eligible. The
-optional enable-after-Start checkbox is off by default, lasts for this GUI
-session and still asks before the test. Restore system proxy can leave Xray
-running. Stop/Restart/Close restore first; a failed restore requires explicit
-confirmation before force stop. Restart does not automatically reacquire proxy
-unless enable-after-Start is selected and the user approves again. A profile
-with only a SOCKS inbound can still run and serve apps on that SOCKS port, but
-Windows system proxy control requires an eligible anonymous HTTP listener; the
-app explains this in step 4 instead of leaving you with a dead button. Use
-Add HTTP listener… to create a validated managed copy with a local HTTP
-listener; the original profile is not modified. If a listener port is already
-in use, Use free port… creates a validated managed copy with a different port.
-
-Validate shows the exact Xray output on the Start tab when a configuration is
-rejected. Run local checks combines the core check, Xray validation and Local
-diagnostics without sending traffic. Errors show a banner with Run Local
-diagnostics, Open Logs and Dismiss. Use Find… (Ctrl+F) to search the bounded log
-buffer. A port already in use is called out before Start.
-
-You can drag a .json or .jsonc file onto the window to import it. Shortcuts:
-Ctrl+O import, Ctrl+N new, Ctrl+E edit, Ctrl+R reload, F5 validate, F6
-start/stop, F7 check core, F8 enable proxy, F9 restore proxy, Ctrl+F find logs,
-Ctrl+L Logs, Ctrl+D Diagnostics, Ctrl+, Settings. Tray notifications report an
-unexpected core exit when the window is hidden.
-
-Start, Logs, Diagnostics and Settings are separate tabs. The Start tab is
-numbered: choose a configuration, optionally choose the listener to verify,
-validate/start Xray, then optionally enable the Windows proxy. A status header
-on every tab says what is happening, what to do next and shows the last error.
-The tray icon shows core and proxy state; right-click for Show, Start, Stop,
-Enable, Restore and Exit. Double-click to reopen. Minimize-to-tray is off by
-default; opt in under Settings and save desktop preferences. Closing the window or choosing
-Exit still restores and stops the owned core. Tray commands reopen the window
-so confirmations remain visible. While busy, show the window and use Cancel
-operation; cancelling a network probe does not discard proxy recovery.
-
-Settings can remember window bounds and log auto-scroll, reset desktop/probe
-preferences, or clear profile references (never delete actual JSON files).
-Unreadable settings are retained until explicit replacement. Desktop settings
-are local to data/desktop.json. No automatic disk recording. Copy or save raw
-logs only after reviewing the sensitive-data warning.
-
-On abnormal GUI termination, Windows may still reference the dead listener.
-Reopen under the same Windows user; recovery runs before core detection.
-Use Review / resolve if another application changed settings; review the
-original, intended and current settings locally (they may contain secrets).
-If recovery is impossible, open Settings > Network & Internet > Proxy and
-restore the previously known manual proxy, script and auto-detect values.
-Do not disable a pre-existing corporate proxy indiscriminately. The encrypted
-journal at %LOCALAPPDATA%\XrayDesktop\ProxyRecovery\pending.dpapi is not in
-the portable folder; do not delete it unless manual recovery is verified.
-An unreadable journal can be moved to a private backup after all app copies
-are closed and manual recovery is confirmed.
+IF THE INTERNET STOPS WORKING AFTER THE APP CRASHED
+A guard process normally restores your settings within seconds, and the next
+launch of the app restores them too. If neither happened, open Windows
+Settings > Network & internet > Proxy and set back your previous values. The
+encrypted record of your original settings is at
+%LOCALAPPDATA%\XrayDesktop\ProxyRecovery\pending.dpapi (not in the portable
+folder); keep it until your settings are verified. If another program changed
+the proxy settings while the app was using them, the app asks before touching
+anything: use More > Review Windows proxy to compare the original, the app's
+and the current values (they may contain secrets).
 
 Diagnostics: Run selected (default Local) or Run all. Configure HTTPS and IP
 service URLs and a 1-15 second network timeout. For direct DNS/TCP/HTTPS,
