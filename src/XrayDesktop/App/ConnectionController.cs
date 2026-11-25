@@ -167,7 +167,7 @@ internal static class FriendlyError
         if (ex.Message.Contains("exited during startup", StringComparison.Ordinal))
             return "The engine stopped right after starting." + Detail(session);
         if (ex.Message.Contains("rejected the configuration", StringComparison.Ordinal))
-            return "This profile is not a valid Xray configuration." + (session.LastValidationOutput.LastOrDefault(l => l.Trim().Length > 0) is { } line ? $" Xray says: {line.Trim()}" : "");
+            return "This profile is not a valid Xray configuration." + (CoreMessage(session.LastValidationOutput) is { } cause ? $" Xray says: {cause}" : "");
         if (ex is FileNotFoundException && ex.Message.Contains("xray.exe", StringComparison.OrdinalIgnoreCase))
             return "xray.exe is missing next to this app. Extract the whole ZIP again and keep the files together.";
         if (ex is UnauthorizedAccessException)
@@ -175,6 +175,19 @@ internal static class FriendlyError
         if (ex.Message.StartsWith("Proxy policy", StringComparison.Ordinal) || ex.Message.Contains("restricted by policy", StringComparison.Ordinal))
             return "Windows proxy settings are locked by your organization, so the app cannot route Windows through the connection.";
         return ex.Message;
+    }
+
+    // The last meaningful core line without the log prefix and the nested
+    // "a > b > c" error chain, which keeps only the innermost cause.
+    internal static string? CoreMessage(IEnumerable<string> output)
+    {
+        var line = output.LastOrDefault(l => l.Trim().Length > 0)?.Trim();
+        if (line is null) return null;
+        var prefix = line.IndexOf("] ", StringComparison.Ordinal);
+        if (prefix >= 0 && prefix < 24) line = line[(prefix + 2)..];
+        var chain = line.LastIndexOf(" > ", StringComparison.Ordinal);
+        if (chain >= 0) line = line[(chain + 3)..];
+        return line.StartsWith("infra/conf: ", StringComparison.Ordinal) ? line["infra/conf: ".Length..] : line;
     }
 
     internal static string CoreExited(SessionController session) =>

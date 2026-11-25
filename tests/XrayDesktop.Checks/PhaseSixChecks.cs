@@ -22,6 +22,7 @@ internal static class PhaseSixChecks
         ("Run plan keeps an existing anonymous HTTP listener", PlanKeepsHttp),
         ("Run plan moves listeners whose ports are taken", PlanMovesPorts),
         ("Run plan rejects TUN configurations", PlanRejectsTun),
+        ("Core validation output is reduced to its readable cause", CoreMessage),
         ("Guard arguments parse strictly", GuardArguments),
         ("Profile removal deletes only managed copies", DeleteManaged)
     ];
@@ -42,7 +43,7 @@ internal static class PhaseSixChecks
         yield return ("vless reality", $"vless://{Uuid}@example.com:443?type=tcp&security=reality&sni=www.microsoft.com&fp=chrome&pbk=ACC07MFOA_7Ivp_U4ez5Z-A0GYAtw470sHV9P4euzuU&sid=ab12cd34&flow=xtls-rprx-vision&encryption=none#r");
         yield return ("vless ws tls", $"vless://{Uuid}@cdn.example.com:443?type=ws&security=tls&host=front.example.com&path=%2Fws&sni=front.example.com&alpn=h2,http/1.1#w");
         yield return ("vless grpc tls", $"vless://{Uuid}@g.example.com:443?type=grpc&security=tls&serviceName=svc&sni=g.example.com#g");
-        yield return ("vless tcp", $"vless://{Uuid}@t.example.com:8443?type=tcp#t");
+        yield return ("vless tcp tls", $"vless://{Uuid}@t.example.com:8443?type=tcp&security=tls&sni=t.example.com#t");
         yield return ("vmess ws tls", "vmess://" + B64($$"""{"v":"2","ps":"v","add":"vm.example.com","port":"8443","id":"{{Uuid}}","aid":"0","scy":"auto","net":"ws","type":"none","host":"vm.example.com","path":"/v","tls":"tls","sni":"vm.example.com"}"""));
         yield return ("trojan", "trojan://secret@t.example.com:443?sni=t.example.com#t");
         yield return ("shadowsocks", $"ss://{B64("aes-256-gcm:secret")}@ss.example.com:8388#s");
@@ -185,6 +186,14 @@ internal static class PhaseSixChecks
     {
         var tun = """{"inbounds":[{"protocol":"tun","tag":"t"}],"outbounds":[]}"""u8.ToArray();
         Throws<InvalidOperationException>(() => RunPlan.Prepare(tun, _ => false, _ => 19090));
+    }
+
+    private static void CoreMessage()
+    {
+        var chain = "08:11:15 [stdout] Failed to start: main: failed to load config files: [C:\\x\\config.json] > infra/conf: failed to build outbound config with tag proxy > infra/conf: vless without TLS or other encryption is prohibited unless the server address is a private IP or domain";
+        Assert(FriendlyError.CoreMessage(["08:11:14 [stdout] banner", chain, " "]) == "vless without TLS or other encryption is prohibited unless the server address is a private IP or domain");
+        Assert(FriendlyError.CoreMessage(["10:00:00 [stdout] simple failure"]) == "simple failure");
+        Assert(FriendlyError.CoreMessage([]) is null && FriendlyError.CoreMessage([" ", ""]) is null);
     }
 
     private static void GuardArguments()

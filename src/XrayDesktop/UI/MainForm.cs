@@ -411,7 +411,7 @@ internal sealed partial class MainForm : Form
     {
         var result = await Task.Run(() => session.ValidateAsync(bytes, workingDirectory, token), token);
         if (result.ExitCode == 0) return;
-        var detail = result.Output.LastOrDefault(line => line.Trim().Length > 0)?.Trim();
+        var detail = FriendlyError.CoreMessage(result.Output);
         throw new InvalidDataException($"'{name}' is not a valid Xray configuration." + (detail is null ? "" : $" Xray says: {detail}"));
     }
     private async Task AddProfileAsync(Profile profile, CancellationToken token)
