@@ -137,7 +137,7 @@ internal static class PhaseFourChecks
         using var form = new MainForm();
         Assert(form.Handle != IntPtr.Zero && !form.Visible);
         var tabs = Descendants(form).OfType<TabControl>().Single();
-        Assert(tabs.TabPages.Cast<TabPage>().Select(page => page.Text).SequenceEqual(new[] { "Start", "Logs", "Diagnostics", "Settings" }));
+        Assert(tabs.TabPages.Cast<TabPage>().Select(page => page.Text).SequenceEqual(new[] { "Connect", "Logs", "Diagnostics", "Settings" }));
         form.PerformLayout();
         Assert(!form.Visible);
     }
