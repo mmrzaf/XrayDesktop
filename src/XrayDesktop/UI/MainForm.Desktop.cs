@@ -1,4 +1,5 @@
 using System.Text;
+using XrayDesktop.App;
 using XrayDesktop.Config;
 using XrayDesktop.Diagnostics;
 using XrayDesktop.Storage;
@@ -7,18 +8,16 @@ namespace XrayDesktop.UI;
 
 internal sealed partial class MainForm
 {
-    private readonly DesktopPreferenceStore desktopStore = new(Path.Combine(AppContext.BaseDirectory, "data"));
+    private readonly DesktopPreferenceStore desktopStore = new(DataDirectory);
     private DesktopPreferences desktopPreferences = DesktopPreferences.Defaults;
     private bool desktopUnreadable;
-    private readonly CheckBox minimizeToTray = new() { Text = "Minimize to notification area (Close still exits)", AutoSize = true };
+    private readonly CheckBox minimizeToTray = new() { Text = "Hide to the notification area when minimized", AutoSize = true };
     private readonly CheckBox rememberWindow = new() { Text = "Remember window location and size", AutoSize = true, Checked = true };
     private readonly CheckBox autoScroll = new() { Text = "Auto-scroll logs", AutoSize = true, Checked = true };
-    private readonly Label desktopNotice = new() { AutoSize = true, Text = "Preferences are stored locally. No automatic core start or disk log recording." };
-    private readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Text = Bootstrap.ProductName };
+    private readonly Label desktopNotice = new() { AutoSize = true, Text = "Preferences are stored next to the app. Nothing is logged to disk." };
+    private readonly NotifyIcon tray = new() { Icon = StatusIcons.Off, Text = Bootstrap.ProductName };
     private readonly ContextMenuStrip trayMenu = new();
-    private readonly ToolStripMenuItem trayShow = new("Show window"), trayStart = new("Start Xray"), trayStop = new("Stop Xray"),
-        trayEnable = new("Enable system proxy"), trayRestore = new("Restore system proxy"), trayChecks = new("Run local checks"),
-        trayExit = new("Exit (restore and stop)");
+    private readonly ToolStripMenuItem trayShow = new("Open Xray Desktop"), trayToggle = new("Connect"), trayExit = new("Exit");
     private FormWindowState lastVisibleState = FormWindowState.Normal;
     private bool initialized;
     private bool desktopDisposed;
@@ -51,25 +50,35 @@ internal sealed partial class MainForm
 
     private void ConfigureTray()
     {
-        trayMenu.Items.AddRange([trayShow, new ToolStripSeparator(), trayStart, trayStop, trayEnable, trayRestore, trayChecks, new ToolStripSeparator(), trayExit]);
+        trayMenu.Items.AddRange([trayShow, trayToggle, new ToolStripSeparator(), trayExit]);
         tray.ContextMenuStrip = trayMenu;
         tray.DoubleClick += (_, _) => ShowWindow();
         trayShow.Click += (_, _) => ShowWindow();
-        trayStart.Click += async (_, _) => await RunTrayAsync(StartAsync);
-        trayStop.Click += async (_, _) => await RunTrayAsync(async _ => { await StopCoreAsync(); });
-        trayEnable.Click += async (_, _) => await RunTrayAsync(EnableProxyAsync);
-        trayRestore.Click += async (_, _) => await RunTrayAsync(_ => RestoreProxyAsync());
-        trayChecks.Click += async (_, _) => await RunTrayAsync(RunLocalChecksAsync);
-        trayExit.Click += (_, _) => { if (!busy && !closing) { ShowWindow(); Close(); } };
+        trayToggle.Click += async (_, _) =>
+        {
+            if (busy || closing) return;
+            ShowWindow(); // Confirmations and errors keep a visible owner.
+            await RunAsync(ToggleConnectionAsync);
+        };
+        trayExit.Click += (_, _) => { if (closing) return; exitRequested = true; ShowWindow(); Close(); };
     }
-    private static bool CommandEnabled(FlowLayoutPanel bar, string name) => bar.Controls.OfType<Button>().Any(button => button.Name == name && button.Enabled);
-    private async Task RunTrayAsync(Func<CancellationToken, Task> command)
+    private void UpdateTray(LinkState state, bool idle)
     {
-        if (busy || closing) return;
-        ShowWindow(); // All confirmation/error dialogs retain a visible owner.
-        await RunAsync(command);
+        trayToggle.Text = connection.Active || session.HasChild ? "Disconnect" : "Connect";
+        trayToggle.Enabled = idle && (connection.Active || session.HasChild || Selected is not null);
+        trayExit.Enabled = !closing;
+        var icon = state switch { LinkState.Connected => StatusIcons.On, LinkState.Disconnected => StatusIcons.Off, _ => StatusIcons.Busy };
+        if (!ReferenceEquals(tray.Icon, icon)) tray.Icon = icon;
+        var tooltip = state switch
+        {
+            LinkState.Connected => $"{Bootstrap.ProductName} — connected",
+            LinkState.Unstable => $"{Bootstrap.ProductName} — connection problem",
+            LinkState.Connecting => $"{Bootstrap.ProductName} — connecting…",
+            _ => $"{Bootstrap.ProductName} — not connected"
+        };
+        if (tray.Text != tooltip) tray.Text = tooltip;
     }
-    private void ShowWindow()
+    internal void ShowWindow()
     {
         if (WindowState == FormWindowState.Minimized) WindowState = lastVisibleState;
         if (!Visible) Show();
@@ -97,29 +106,20 @@ internal sealed partial class MainForm
     }
     private async Task SaveDesktopAsync(CancellationToken token)
     {
-        if (desktopUnreadable && MessageBox.Show(this, "Replace unreadable desktop preferences?", "Preferences", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        if (desktopUnreadable && MessageBox.Show(this, "Replace the unreadable window preferences?", "Preferences", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
         var value = new DesktopPreferences(1, minimizeToTray.Checked, rememberWindow.Checked, autoScroll.Checked, rememberWindow.Checked ? CapturePlacement() : null);
         await Task.Run(() => desktopStore.Save(value), token);
         desktopPreferences = value; desktopUnreadable = false;
-        desktopNotice.Text = "Desktop preferences saved. Minimize behavior is now active; Close still restores and exits.";
+        desktopNotice.Text = "Preferences saved.";
     }
     private async Task ResetDesktopAsync(CancellationToken token)
     {
-        if (MessageBox.Show(this, "Reset desktop and diagnostic preferences to defaults? Profile files and proxy recovery are untouched. This also replaces unreadable preference files.", "Reset preferences", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        if (MessageBox.Show(this, "Reset window and diagnostic preferences to defaults? Profiles and proxy recovery data are not touched.", "Reset preferences", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
         await Task.Run(() => desktopStore.Save(DesktopPreferences.Defaults), token);
         desktopPreferences = DesktopPreferences.Defaults; desktopUnreadable = false; ApplyDesktopPreferences();
         await Task.Run(() => probePreferences.Save(ProbePreferences.Defaults), token);
         probePreferencesUnreadable = false; diagnostics.ApplyPreferences(ProbePreferences.Defaults);
-        enableOnStart.Checked = false;
-        desktopNotice.Text = "Desktop and diagnostic preferences reset.";
-    }
-    private async Task ClearProfilesAsync(CancellationToken token)
-    {
-        if (session.HasChild) throw new InvalidOperationException("Stop the owned core before clearing profile references.");
-        if (MessageBox.Show(this, "Clear every saved profile reference, including the active selection? No configuration file will be deleted. Unreadable profile settings will be replaced.", "Clear profile list", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-        var empty = new ProfileSettings(1, [], null);
-        await Task.Run(() => store.Save(empty), token);
-        settings = empty; settingsUnreadable = false; RefreshProfiles(null); await InspectAsync(token);
+        desktopNotice.Text = "Preferences reset.";
     }
     private async Task SavePlacementOnExitAsync()
     {
@@ -130,7 +130,7 @@ internal sealed partial class MainForm
             await Task.Run(() => desktopStore.Save(value));
         }
         catch (Exception)
-        { MessageBox.Show(this, "Window placement could not be saved. Core stop has completed; any unresolved proxy recovery is retained.", "Preferences", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        { MessageBox.Show(this, "Window position could not be saved. The connection was stopped and your Windows settings were handled.", "Preferences", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
     private async Task SaveRawLogsAsync(CancellationToken token)
     {

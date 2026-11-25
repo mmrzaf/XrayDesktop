@@ -18,6 +18,9 @@ internal static class Program
             case StartupMode.Help:
                 Console.WriteLine(Bootstrap.Usage);
                 return 0;
+            case StartupMode.Guard:
+                Bootstrap.TryParseGuard(args, out var parentId, out var journalId);
+                return ProxyGuard.Run(parentId, journalId);
             case StartupMode.Desktop:
                 ApplicationConfiguration.Initialize();
                 try
@@ -25,10 +28,11 @@ internal static class Program
                     using var instance = new SingleInstance();
                     if (!instance.Acquired)
                     {
-                        MessageBox.Show("Another Xray Desktop instance is already running for this user.", Bootstrap.ProductName);
-                        return 1;
+                        instance.SignalRunningInstance();
+                        return 0;
                     }
                     using var form = new MainForm();
+                    instance.OnShowRequested(() => { if (form.IsHandleCreated && !form.IsDisposed) form.BeginInvoke(new Action(form.ShowWindow)); });
                     Application.Run(form);
                 }
                 catch (Exception exception)
