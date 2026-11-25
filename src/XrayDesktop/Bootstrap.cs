@@ -9,6 +9,7 @@ internal enum StartupMode
     Version,
     SelfTest,
     Help,
+    Guard,
     Invalid
 }
 
@@ -32,8 +33,17 @@ internal static class Bootstrap
             "--help" => StartupMode.Help,
             _ => StartupMode.Invalid
         },
+        3 when args[0] == "--guard" && TryParseGuard(args, out _, out _) => StartupMode.Guard,
         _ => StartupMode.Invalid
     };
+
+    internal static bool TryParseGuard(string[] args, out int parentId, out Guid journalId)
+    {
+        parentId = 0; journalId = Guid.Empty;
+        return args is ["--guard", var pid, var id] &&
+            int.TryParse(pid, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out parentId) && parentId > 0 &&
+            Guid.TryParseExact(id, "N", out journalId);
+    }
 
     internal static int RunSelfTest(TextWriter output, TextWriter error)
     {
